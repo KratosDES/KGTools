@@ -1,4 +1,4 @@
-# Tools — Grepo-Smart
+# Tools — KratosDES
 
 Herramientas derivadas del laboratorio de análisis del ecosistema Grepolis.
 Cada herramienta es independiente, modular, y enfocada en QoL (calidad de vida) sin automatizar acciones.

@@ -3,7 +3,7 @@
 // @namespace    grepo-alerts
 // @version      0.1.9
 // @description  Rastrea movimientos del juego y notifica cuando terminan. Sin automatización.
-// @author       Grepo-Smart
+// @author       KratosDES
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*

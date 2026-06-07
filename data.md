@@ -1,6 +1,6 @@
 # KGTools — Caja de herramientas para Grepolis
 
-> Carpeta actual: `Grepo-Smart-coder/tools/`
+> Carpeta actual: `KratosDES-coder/tools/`
 > Nombre del proyecto: **KGTools** (Grepolis Knowledge Tools)
 > Fecha: 2026-06-07
 
@@ -9,7 +9,7 @@
 ## 1. Concepto
 
 **KGTools** es una caja de herramientas de calidad de vida (QoL) para jugadores de Grepolis.
-Nace del laboratorio de análisis del ecosistema Grepolis dentro del proyecto Grepo-Smart.
+Nace del laboratorio de análisis del ecosistema Grepolis dentro del proyecto KratosDES.
 
 La premisa central es simple: **el jugador siempre decide, la herramienta nunca actúa sola.**
 
@@ -99,20 +99,20 @@ y notifica al jugador cuando terminan mediante sonido, toast visual y/o notifica
 
 ---
 
-## 6. Relación con el proyecto Grepo-Smart
+## 6. Relación con el proyecto KratosDES
 
-**Grepo-Smart** es el proyecto paraguas de investigación e inteligencia sobre el ecosistema Grepolis.
+**KratosDES** es el proyecto paraguas de investigación e inteligencia sobre el ecosistema Grepolis.
 
 ```
-Grepo-Smart/
+KratosDES/
 ├── lab/                    ← infraestructura de laboratorio (Playwright, proxy, cuentas)
-├── Grepo-Smart-coder/
+├── KratosDES-coder/
 │   ├── lab-evidence/       ← análisis de extensiones existentes
 │   ├── game-knowledge/     ← mecánicas del juego documentadas
 │   └── tools/              ← KGTools (este proyecto)
 ```
 
-KGTools es el output de producción de Grepo-Smart: lo que el laboratorio aprende,
+KGTools es el output de producción de KratosDES: lo que el laboratorio aprende,
 KGTools lo convierte en herramientas concretas para jugadores reales.
 
 ---
