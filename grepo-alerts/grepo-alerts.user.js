@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.1.9
+// @version      0.2.0
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -38,7 +38,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.1.9';
+  GA.VERSION        = '0.2.0';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -1229,6 +1229,13 @@
           ? 'Hacé click en el 🔔 junto<br>a cualquier movimiento del juego.'
           : 'Las alertas completadas<br>aparecen aquí.';
         el.innerHTML = `<div class="ga_empty">No hay alertas.<div class="ga_empty_hint">${hint}</div></div>`;
+        if (tab === 'active') {
+          const addBtn = document.createElement('div');
+          addBtn.style.cssText = 'text-align:center;padding:6px 0';
+          addBtn.innerHTML = `<button class="ga_ph_btn" id="ga_open_custom" style="font-size:11px">＋ Alerta personalizada</button>`;
+          el.appendChild(addBtn);
+          el.querySelector('#ga_open_custom').onclick = () => this._toggleCustomForm();
+        }
         return;
       }
 
