@@ -7,6 +7,8 @@
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*
+// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/main/grepo-alerts/grepo-alerts.user.js
+// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/main/grepo-alerts/grepo-alerts.user.js
 // @grant        unsafeWindow
 // @run-at       document-end
 // @noframes
