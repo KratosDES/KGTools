@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         GrepoAlerts — Rastreador de Movimientos
+// @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
 // @version      0.1.9
-// @description  Rastrea movimientos del juego y notifica cuando terminan. Sin automatización.
+// @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
