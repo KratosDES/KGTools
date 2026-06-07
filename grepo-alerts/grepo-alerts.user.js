@@ -207,7 +207,7 @@
         browserEnabled:  false,
         autoplayEnabled: false,
         volume:          0.6,
-        earlyMs:         0,
+        earlyMs:         3000,
         ...(this._read().settings || {})
       };
     },
