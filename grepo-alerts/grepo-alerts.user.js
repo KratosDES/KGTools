@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.0
+// @version      0.2.1
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -589,6 +589,7 @@
   GA.notifications = {
 
     _ctx: null,
+    _oscillators: [],
 
     _audioCtx() {
       if (!this._ctx)
@@ -611,6 +612,7 @@
         const ctx     = this._ctx;
         const vol     = Math.min(1, Math.max(0, GA.storage.getSettings().volume ?? 0.6));
         const now     = ctx.currentTime;
+        this._oscillators = [];
         const BEEPS   = 8;
         const ON      = 0.14;
         const OFF     = 0.07;
@@ -633,9 +635,18 @@
             gain.gain.exponentialRampToValueAtTime(0.001, t + ON);
             osc.start(t);
             osc.stop(t + ON);
+            this._oscillators.push(osc);
           }
         }
       } catch (e) { log('Audio error:', e); }
+    },
+
+    /** Detiene la alarma al instante — cancela todos los osciladores programados */
+    stopSound() {
+      this._oscillators.forEach(osc => {
+        try { osc.stop(); } catch (e) { /* ya detenido o nunca arrancó */ }
+      });
+      this._oscillators = [];
     },
 
     /** Toast overlay dentro del juego */
@@ -647,6 +658,11 @@
         document.body.appendChild(container);
       }
 
+      const soundOn = GA.storage.getSettings().soundEnabled;
+      const muteBtn = soundOn
+        ? '<button class="ga_toast_mute" aria-label="Silenciar" title="Silenciar alarma">🔊❌</button>'
+        : '';
+
       const el = document.createElement('div');
       el.className = 'ga_toast';
       el.innerHTML = `
@@ -655,8 +671,14 @@
           <div class="ga_toast_title">Movimiento completado</div>
           <div class="ga_toast_msg">${GA.utils.esc(alert.label)}</div>
         </div>
+        ${muteBtn}
         <button class="ga_toast_close" aria-label="Cerrar">×</button>
       `;
+
+      // Silenciar: detiene el sonido al instante y cierra el toast,
+      // SIN marcar la alerta como notificada (queda "pending").
+      const mute = el.querySelector('.ga_toast_mute');
+      if (mute) mute.onclick = () => { GA.notifications.stopSound(); el.remove(); };
 
       el.querySelector('.ga_toast_close').onclick = () => el.remove();
       container.appendChild(el);
@@ -1032,6 +1054,19 @@
           cursor: pointer; font-size: 17px; line-height: 1; padding: 0;
         }
         .ga_toast_x:hover { color: var(--ga-red); }
+        .ga_toast_mute {
+          background: none;
+          border: 1px solid var(--ga-red);
+          color: var(--ga-red);
+          cursor: pointer;
+          font-size: 12px;
+          line-height: 1;
+          padding: 2px 4px;
+          border-radius: 3px;
+          flex-shrink: 0;
+          transition: background .15s;
+        }
+        .ga_toast_mute:hover { background: rgba(231, 76, 60, .2); }
 
         /* ─ Volume slider ─ */
         .ga_slider {

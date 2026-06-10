@@ -4,7 +4,7 @@
 
 **Prioridad:** Alta
 **Módulo:** `notifications` (toast + sound)
-**Estado:** Pendiente
+**Estado:** ✅ Implementado (v0.2.1)
 
 ### Descripción
 
