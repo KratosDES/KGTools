@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.2
+// @version      0.2.3
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.2';
+  GA.VERSION        = '0.2.3';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -814,6 +814,17 @@
           transition: transform .15s;
         }
         #ga_fab:hover { transform: scale(1.08); }
+        /* Docked: cuando el FAB vive dentro de #icons_container_left,
+           fluye como un ícono más de la barra del juego (sin position:fixed). */
+        #ga_fab.ga_fab_docked {
+          position: relative;
+          bottom: auto;
+          left: auto;
+          margin: 4px auto 0;
+          width: 40px;
+          height: 40px;
+          font-size: 20px;
+        }
         #ga_fab_badge {
           position: absolute;
           top: -5px;
@@ -880,6 +891,8 @@
           transition: background .15s;
         }
         .ga_ph_btn:hover { background: rgba(200,169,110,.15); }
+        .ga_ph_actions { display: flex; align-items: center; gap: 6px; }
+        .ga_ph_close { padding: 2px 7px; font-weight: 700; line-height: 1; }
 
         /* Tabs */
         .ga_tabs {
@@ -1174,7 +1187,33 @@
           GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.togglePanel();
       };
-      document.body.appendChild(fab);
+      this._fab = fab;
+      this._dockFAB();
+    },
+
+    // Ubica el FAB como último ícono dentro de #icons_container_left.
+    // Si el contenedor del juego aún no existe, lo deja flotante (fallback)
+    // y observa el DOM hasta que aparezca para re-ubicarlo. Patrón observer,
+    // se autodesconecta tras el primer docking exitoso.
+    _dockFAB() {
+      const fab = this._fab;
+      if (!fab) return;
+      const host = document.getElementById('icons_container_left');
+      if (host) {
+        if (fab.parentNode !== host) host.appendChild(fab);
+        fab.classList.add('ga_fab_docked');
+        this._fabObserver?.disconnect();
+        this._fabObserver = null;
+        return;
+      }
+      if (!fab.parentNode) {
+        fab.classList.remove('ga_fab_docked');
+        document.body.appendChild(fab);
+      }
+      if (!this._fabObserver) {
+        this._fabObserver = new MutationObserver(() => this._dockFAB());
+        this._fabObserver.observe(document.body, { childList: true, subtree: true });
+      }
     },
 
     updateBadge() {
@@ -1193,7 +1232,10 @@
       p.innerHTML = `
         <div class="ga_ph">
           <span class="ga_ph_title">🔔 GrepoAlerts <span style="font-weight:400;font-size:10px;opacity:.6">v${GA.VERSION}</span></span>
-          <button class="ga_ph_btn" id="ga_clear">Limpiar historial</button>
+          <div class="ga_ph_actions">
+            <button class="ga_ph_btn" id="ga_clear">Limpiar historial</button>
+            <button class="ga_ph_btn ga_ph_close" id="ga_close" title="Cerrar" aria-label="Cerrar">✕</button>
+          </div>
         </div>
         <div class="ga_tabs">
           <div class="ga_tab ga_on" data-tab="active">Activas</div>
@@ -1214,6 +1256,8 @@
         this.updateBadge();
       };
 
+      p.querySelector('#ga_close').onclick = () => this.closePanel();
+
       p.querySelectorAll('.ga_tab').forEach(tab => {
         tab.onclick = () => this._switchTab(tab.dataset.tab);
       });
@@ -1228,11 +1272,49 @@
       if (!p) return;
       p.classList.toggle('ga_open', this._panelOpen);
       if (this._panelOpen) {
+        this._positionPanel(p);
         this._render();
         this._refreshTick = setInterval(() => this._renderList('active'), 1000);
       } else {
         clearInterval(this._refreshTick);
       }
+    },
+
+    // Posiciona el panel al abrir.
+    // - FAB docked: ancla ARRIBA, a la DERECHA de la fila de íconos
+    //   (#icons_container_left), y se despliega hacia abajo. Clamp de altura
+    //   para que el fondo de la ventana nunca quede fuera del viewport.
+    // - FAB flotante (fallback): posición original abajo-izquierda.
+    _positionPanel(p) {
+      const fab = this._fab;
+      if (!fab || !fab.classList.contains('ga_fab_docked')) {
+        p.style.top = '';
+        p.style.left = '14px';
+        p.style.bottom = '132px';
+        p.style.maxHeight = '';
+        return;
+      }
+      const host = document.getElementById('icons_container_left') || fab;
+      const r    = host.getBoundingClientRect();
+      const gap  = 8;
+      const W    = 320;
+      let left = r.right + gap;   // a la derecha de la fila de íconos
+      let top  = r.top;           // alineado con la parte superior de la fila
+      if (left + W > window.innerWidth - 8) left = window.innerWidth - W - 8;
+      if (left < 8) left = 8;
+      if (top  < 8) top  = 8;
+      p.style.bottom    = 'auto';
+      p.style.top       = top + 'px';
+      p.style.left      = left + 'px';
+      p.style.maxHeight = (window.innerHeight - top - 12) + 'px';
+    },
+
+    // Cierra el panel explícitamente (botón ✕), sin importar el estado del toggle.
+    closePanel() {
+      this._panelOpen = false;
+      const p = document.getElementById('ga_panel');
+      if (p) p.classList.remove('ga_open');
+      clearInterval(this._refreshTick);
     },
 
     _switchTab(tab) {
