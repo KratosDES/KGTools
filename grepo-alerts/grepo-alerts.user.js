@@ -1611,6 +1611,7 @@
           <div class="ga_form_row" id="ga_row_exact">
             HH <input type="number" class="ga_time_in" id="ga_c_hh" min="0" max="23" value="00">
             : MM <input type="number" class="ga_time_in" id="ga_c_mm" min="0" max="59" value="00">
+            : SS <input type="number" class="ga_time_in" id="ga_c_ss" min="0" max="59" value="00">
           </div>
           <div class="ga_form_row" id="ga_row_cd" style="display:none">
             HH <input type="number" class="ga_time_in" id="ga_c_chh" min="0" max="99" value="00">
@@ -1637,17 +1638,17 @@
     },
 
     /**
-     * Convierte HH:MM en la timezone del juego a un timestamp Unix (ms).
+     * Convierte HH:MM:SS en la timezone del juego a un timestamp Unix (ms).
      * Evita el bug donde browser timezone y game timezone difieren.
      */
-    _gameTimeToTimestamp(hh, mm) {
+    _gameTimeToTimestamp(hh, mm, ss = 0) {
       const tz = (win.uw || win).Game?.player_timezone;
       const now = new Date();
 
       if (!tz) {
         // Fallback: timezone del browser (no hay juego cargado)
         const d = new Date(now);
-        d.setHours(hh, mm, 0, 0);
+        d.setHours(hh, mm, ss, 0);
         return d.getTime();
       }
 
@@ -1662,18 +1663,19 @@
       const get = (type) => parseInt(parts.find(p => p.type === type).value);
       const gameH = get('hour') === 24 ? 0 : get('hour'); // Intl puede devolver 24
       const gameM = get('minute');
+      const gameS = get('second');
       const gameY = get('year');
       const gameMo = get('month');
       const gameD = get('day');
 
       // Construir Date en UTC, luego ajustar por offset timezone
       // Crear fecha UTC con los valores del juego
-      const gameNow = Date.UTC(gameY, gameMo - 1, gameD, gameH, gameM, 0);
+      const gameNow = Date.UTC(gameY, gameMo - 1, gameD, gameH, gameM, gameS);
       // Offset entre此刻 en game timezone y此刻 en UTC
       const offsetMs = gameNow - now.getTime();
 
       // Target: midnight UTC del día de hoy + offset + hh:mm
-      const targetUtc = Date.UTC(gameY, gameMo - 1, gameD, hh, mm, 0) - offsetMs;
+      const targetUtc = Date.UTC(gameY, gameMo - 1, gameD, hh, mm, ss) - offsetMs;
 
       // Si el target ya pasó, sumar 1 día
       const oneDayMs = 86400000;
@@ -1690,7 +1692,8 @@
       if (type === 'exact') {
         const hh = parseInt(wrap.querySelector('#ga_c_hh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_mm').value || 0);
-        tsMs = this._gameTimeToTimestamp(hh, mm);
+        const ss = parseInt(wrap.querySelector('#ga_c_ss').value || 0);
+        tsMs = this._gameTimeToTimestamp(hh, mm, ss);
       } else {
         const hh = parseInt(wrap.querySelector('#ga_c_chh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_cmm').value || 0);
