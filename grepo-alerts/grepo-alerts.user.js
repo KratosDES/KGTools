@@ -1636,6 +1636,50 @@
       wrap.querySelector('#ga_ct_add').onclick    = () => this._addCustomAlert(wrap);
     },
 
+    /**
+     * Convierte HH:MM en la timezone del juego a un timestamp Unix (ms).
+     * Evita el bug donde browser timezone y game timezone difieren.
+     */
+    _gameTimeToTimestamp(hh, mm) {
+      const tz = (win.uw || win).Game?.player_timezone;
+      const now = new Date();
+
+      if (!tz) {
+        // Fallback: timezone del browser (no hay juego cargado)
+        const d = new Date(now);
+        d.setHours(hh, mm, 0, 0);
+        return d.getTime();
+      }
+
+      // Obtener la hora actual en timezone del juego
+      const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+      }).formatToParts(now);
+
+      const get = (type) => parseInt(parts.find(p => p.type === type).value);
+      const gameH = get('hour') === 24 ? 0 : get('hour'); // Intl puede devolver 24
+      const gameM = get('minute');
+      const gameY = get('year');
+      const gameMo = get('month');
+      const gameD = get('day');
+
+      // Construir Date en UTC, luego ajustar por offset timezone
+      // Crear fecha UTC con los valores del juego
+      const gameNow = Date.UTC(gameY, gameMo - 1, gameD, gameH, gameM, 0);
+      // Offset entre此刻 en game timezone y此刻 en UTC
+      const offsetMs = gameNow - now.getTime();
+
+      // Target: midnight UTC del día de hoy + offset + hh:mm
+      const targetUtc = Date.UTC(gameY, gameMo - 1, gameD, hh, mm, 0) - offsetMs;
+
+      // Si el target ya pasó, sumar 1 día
+      const oneDayMs = 86400000;
+      return targetUtc <= now.getTime() ? targetUtc + oneDayMs : targetUtc;
+    },
+
     _addCustomAlert(wrap) {
       const label = wrap.querySelector('#ga_ct')?.value?.trim();
       if (!label) { wrap.querySelector('#ga_ct').focus(); return; }
@@ -1646,11 +1690,7 @@
       if (type === 'exact') {
         const hh = parseInt(wrap.querySelector('#ga_c_hh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_mm').value || 0);
-        const now = new Date();
-        const target = new Date(now);
-        target.setHours(hh, mm, 0, 0);
-        if (target <= now) target.setDate(target.getDate() + 1);
-        tsMs = target.getTime();
+        tsMs = this._gameTimeToTimestamp(hh, mm);
       } else {
         const hh = parseInt(wrap.querySelector('#ga_c_chh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_cmm').value || 0);
