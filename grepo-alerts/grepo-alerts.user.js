@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.3e
+// @version      0.2.3f
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.3e';
+  GA.VERSION        = '0.2.3f';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -837,20 +837,22 @@
         #ga_fab_badge.ga_visible { display: flex; }
         .ga_fab_mute {
           position: absolute;
-          bottom: -4px;
-          right: -4px;
+          bottom: 4px;
+          right: 4px;
           background: var(--ga-red);
           color: #fff;
           border-radius: 50%;
-          width: 18px;
-          height: 18px;
-          font-size: 10px;
+          width: 14px;
+          height: 14px;
+          font-size: 8px;
           display: none;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          z-index: 1;
+          z-index: 10;
           line-height: 1;
+          pointer-events: auto;
+          box-shadow: 0 1px 3px rgba(0,0,0,.5);
         }
         .ga_fab_mute.ga_visible { display: flex; }
 
