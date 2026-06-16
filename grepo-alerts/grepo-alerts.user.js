@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.3h';
+  GA.VERSION        = '0.2.4';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -662,6 +662,11 @@
         document.body.appendChild(container);
       }
 
+      const isCustom = alert.type === 'custom';
+      const renewBtn = isCustom
+        ? '<button class="ga_toast_renew" aria-label="Renovar" title="Renovar alarma">🔄</button>'
+        : '';
+
       const el = document.createElement('div');
       el.className = 'ga_toast';
       el.innerHTML = `
@@ -670,8 +675,22 @@
           <div class="ga_toast_title">Movimiento completado</div>
           <div class="ga_toast_msg">${GA.utils.esc(alert.label)}</div>
         </div>
+        ${renewBtn}
         <button class="ga_toast_close" aria-label="Cerrar">×</button>
       `;
+
+      // Renovar: re-schedula la alerta con el mismo delay original
+      if (isCustom) {
+        el.querySelector('.ga_toast_renew').onclick = () => {
+          const originalDelay = alert.tsMs - alert.trackedAt;
+          alert.tsMs = Date.now() + originalDelay;
+          alert.status = 'pending';
+          GA.storage.updateStatus(alert.id, 'pending');
+          GA.tracker._schedule(alert);
+          GA.events.emit('alert:added', alert);
+          el.remove();
+        };
+      }
 
       el.querySelector('.ga_toast_close').onclick = () => el.remove();
       container.appendChild(el);
@@ -1085,6 +1104,19 @@
           cursor: pointer; font-size: 17px; line-height: 1; padding: 0;
         }
         .ga_toast_x:hover { color: var(--ga-red); }
+        .ga_toast_renew {
+          background: none;
+          border: 1px solid var(--ga-gold);
+          color: var(--ga-gold);
+          cursor: pointer;
+          font-size: 14px;
+          line-height: 1;
+          padding: 2px 4px;
+          border-radius: 3px;
+          flex-shrink: 0;
+          transition: background .15s, transform .2s;
+        }
+        .ga_toast_renew:hover { background: rgba(200,169,110,.2); transform: rotate(180deg); }
 
         /* ─ Volume slider ─ */
         .ga_slider {
