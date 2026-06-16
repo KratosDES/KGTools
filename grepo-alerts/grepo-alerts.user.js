@@ -600,7 +600,10 @@
     fire(alert) {
       const s = GA.storage.getSettings();
       log('Firing notification:', alert.label);
-      if (s.soundEnabled)   this.sound();
+      if (s.soundEnabled) {
+        this.sound();
+        GA.ui.showMuteIndicator(true);
+      }
       if (s.visualEnabled)  this.toast(alert);
       if (s.browserEnabled) this.browser(alert);
     },
@@ -647,6 +650,7 @@
         try { osc.stop(); } catch (e) { /* ya detenido o nunca arrancó */ }
       });
       this._oscillators = [];
+      GA.ui.showMuteIndicator(false);
     },
 
     /** Toast overlay dentro del juego */
@@ -658,11 +662,6 @@
         document.body.appendChild(container);
       }
 
-      const soundOn = GA.storage.getSettings().soundEnabled;
-      const muteBtn = soundOn
-        ? '<button class="ga_toast_mute" aria-label="Silenciar" title="Silenciar alarma">🔊❌</button>'
-        : '';
-
       const el = document.createElement('div');
       el.className = 'ga_toast';
       el.innerHTML = `
@@ -671,14 +670,8 @@
           <div class="ga_toast_title">Movimiento completado</div>
           <div class="ga_toast_msg">${GA.utils.esc(alert.label)}</div>
         </div>
-        ${muteBtn}
         <button class="ga_toast_close" aria-label="Cerrar">×</button>
       `;
-
-      // Silenciar: detiene el sonido al instante y cierra el toast,
-      // SIN marcar la alerta como notificada (queda "pending").
-      const mute = el.querySelector('.ga_toast_mute');
-      if (mute) mute.onclick = () => { GA.notifications.stopSound(); el.remove(); };
 
       el.querySelector('.ga_toast_close').onclick = () => el.remove();
       container.appendChild(el);
@@ -842,6 +835,24 @@
           padding: 0 2px;
         }
         #ga_fab_badge.ga_visible { display: flex; }
+        .ga_fab_mute {
+          position: absolute;
+          bottom: -4px;
+          right: -4px;
+          background: var(--ga-red);
+          color: #fff;
+          border-radius: 50%;
+          width: 18px;
+          height: 18px;
+          font-size: 10px;
+          display: none;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          z-index: 1;
+          line-height: 1;
+        }
+        .ga_fab_mute.ga_visible { display: flex; }
 
         /* ─ Panel ─ */
         #ga_panel {
@@ -1067,19 +1078,6 @@
           cursor: pointer; font-size: 17px; line-height: 1; padding: 0;
         }
         .ga_toast_x:hover { color: var(--ga-red); }
-        .ga_toast_mute {
-          background: none;
-          border: 1px solid var(--ga-red);
-          color: var(--ga-red);
-          cursor: pointer;
-          font-size: 12px;
-          line-height: 1;
-          padding: 2px 4px;
-          border-radius: 3px;
-          flex-shrink: 0;
-          transition: background .15s;
-        }
-        .ga_toast_mute:hover { background: rgba(231, 76, 60, .2); }
 
         /* ─ Volume slider ─ */
         .ga_slider {
@@ -1181,8 +1179,14 @@
       const fab = document.createElement('div');
       fab.id    = 'ga_fab';
       fab.title = 'GrepoAlerts';
-      fab.innerHTML = `🔔<span id="ga_fab_badge"></span>`;
-      fab.onclick = () => {
+      fab.innerHTML = `🔔<span id="ga_fab_badge"></span><span id="ga_fab_mute" class="ga_fab_mute" title="Silenciar alarma" style="display:none">🔇</span>`;
+      fab.onclick = (e) => {
+        // Si click en el botón de mute, silenciar en vez de abrir panel
+        if (e.target.id === 'ga_fab_mute' || e.target.closest('#ga_fab_mute')) {
+          GA.notifications.stopSound();
+          this.showMuteIndicator(false);
+          return;
+        }
         if (!GA.notifications._ctx)
           GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.togglePanel();
@@ -1214,6 +1218,12 @@
         this._fabObserver = new MutationObserver(() => this._dockFAB());
         this._fabObserver.observe(document.body, { childList: true, subtree: true });
       }
+    },
+
+    /** Muestra/oculta el indicador de mute en la campana */
+    showMuteIndicator(show) {
+      const el = document.getElementById('ga_fab_mute');
+      if (el) el.classList.toggle('ga_visible', show);
     },
 
     updateBadge() {
