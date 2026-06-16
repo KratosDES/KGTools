@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.3f
+// @version      0.2.3g
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.3f';
+  GA.VERSION        = '0.2.3g';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -836,25 +836,30 @@
         }
         #ga_fab_badge.ga_visible { display: flex; }
         .ga_fab_mute {
-          position: absolute;
-          bottom: 4px;
-          right: 4px;
+          position: fixed;
+          bottom: 30px;
+          left: 14px;
+          z-index: 99999;
           background: var(--ga-red);
           color: #fff;
+          border: 2px solid #a33;
           border-radius: 50%;
-          width: 14px;
-          height: 14px;
-          font-size: 8px;
+          width: 32px;
+          height: 32px;
+          font-size: 16px;
           display: none;
           align-items: center;
           justify-content: center;
           cursor: pointer;
-          z-index: 10;
           line-height: 1;
-          pointer-events: auto;
-          box-shadow: 0 1px 3px rgba(0,0,0,.5);
+          box-shadow: 0 2px 8px rgba(0,0,0,.6);
+          animation: ga_pulse 1s ease infinite;
         }
         .ga_fab_mute.ga_visible { display: flex; }
+        @keyframes ga_pulse {
+          0%,100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
 
         /* ─ Panel ─ */
         #ga_panel {
@@ -1181,19 +1186,25 @@
       const fab = document.createElement('div');
       fab.id    = 'ga_fab';
       fab.title = 'GrepoAlerts';
-      fab.innerHTML = `🔔<span id="ga_fab_badge"></span><span id="ga_fab_mute" class="ga_fab_mute" title="Silenciar alarma" style="display:none">🔇</span>`;
-      fab.onclick = (e) => {
-        // Si click en el botón de mute, silenciar en vez de abrir panel
-        if (e.target.id === 'ga_fab_mute' || e.target.closest('#ga_fab_mute')) {
-          GA.notifications.stopSound();
-          this.showMuteIndicator(false);
-          return;
-        }
+      fab.innerHTML = `🔔<span id="ga_fab_badge"></span>`;
+      fab.onclick = () => {
         if (!GA.notifications._ctx)
           GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
         this.togglePanel();
       };
       this._fab = fab;
+
+      // Botón de silenciar — elemento separado, flotante debajo de la campana
+      const mute = document.createElement('div');
+      mute.id = 'ga_fab_mute';
+      mute.className = 'ga_fab_mute';
+      mute.title = 'Silenciar alarma';
+      mute.textContent = '🔇';
+      mute.onclick = () => {
+        GA.notifications.stopSound();
+        this.showMuteIndicator(false);
+      };
+      this._muteBtn = mute;
       this._dockFAB();
     },
 
@@ -1222,10 +1233,17 @@
       }
     },
 
-    /** Muestra/oculta el indicador de mute en la campana */
+    /** Muestra/oculta el botón de silenciar (flotante) */
     showMuteIndicator(show) {
-      const el = document.getElementById('ga_fab_mute');
-      if (el) el.classList.toggle('ga_visible', show);
+      const mute = this._muteBtn;
+      if (!mute) return;
+      if (show) {
+        if (!mute.parentNode) document.body.appendChild(mute);
+        mute.classList.add('ga_visible');
+      } else {
+        mute.classList.remove('ga_visible');
+        if (mute.parentNode) mute.parentNode.removeChild(mute);
+      }
     },
 
     updateBadge() {
