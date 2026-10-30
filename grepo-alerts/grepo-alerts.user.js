@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.3h
+// @version      0.2.4a
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*
-// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/main/grepo-alerts/grepo-alerts.user.js
-// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/main/grepo-alerts/grepo-alerts.user.js
+// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/feat/attack-times/grepo-alerts/grepo-alerts.user.js
+// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/feat/attack-times/grepo-alerts/grepo-alerts.user.js
 // @grant        unsafeWindow
 // @run-at       document-end
 // @noframes
