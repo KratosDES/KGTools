@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.4b
+// @version      0.2.4c
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.4b';
+  GA.VERSION        = '0.2.4c';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -272,6 +272,15 @@
       ];
     },
 
+    /** true/false si el id es una ciudad mía; null si el juego no expone ITowns. */
+    isOwnTown(id) {
+      try {
+        const t = this._uw().ITowns;
+        if (!t) return null;
+        return !!(t.towns?.[id] ?? t.getTown?.(id));
+      } catch { return null; }
+    },
+
     getCurrentTownId() {
       try { return this._uw().Game?.townId ?? null; }
       catch { return null; }
@@ -408,23 +417,54 @@
      */
     fromMovement(model) {
       const a = model.attributes ?? model;
-      if (a.type !== 'attack') return null;
+      if (a.type !== 'attack' && a.type !== 'support') return null;
       const tsMs = a.arrival_at ? a.arrival_at * 1000 : null;
       if (!tsMs) return null;
+
+      // Defensa entrante = apoyo que viene de una ciudad que no es mía.
+      // Si el juego no expone mis ciudades (null) no se filtra nada.
+      if (a.type === 'support' && GA.game.isOwnTown(a.home_town_id) === true) return null;
 
       const origin = a.town_name_origin ?? a.home_town_id ?? '?';
       const dest   = a.town_name_destination ?? a.target_town_id ?? '?';
 
       return this._base(
         `mov_${model.id}`,
-        'attack',
+        a.type,
         tsMs,
         a.target_town_id,
         {
           modelId: model.id,
           source:  'MovementsUnits',
-          label:   `${this._meta('attack').label}: ${origin} → ${dest}`
+          label:   `${this._meta(a.type).label}: ${origin} → ${dest}`
         }
+      );
+    },
+
+    /**
+     * Fila de la lista de movimientos de la barra (div#movement_<id>).
+     * Misma id que fromMovement para que el registro manual y el automático no se dupliquen.
+     */
+    fromMovementRow(wrap) {
+      const idNum = wrap.id?.match(/^movement_(\d+)$/)?.[1];
+      const ts    = Number(wrap.dataset.timestamp);
+      if (!idNum || !ts) return null;
+
+      const icon = wrap.querySelector('.icon')?.classList;
+      const type = ['attack', 'support', 'colonization'].find(t => icon?.contains(t));
+      if (!type) return null;
+
+      const isUnits = wrap.dataset.commandtype === 'unit_movements';
+      const town    = wrap.querySelector('.town_link a')?.textContent?.trim();
+      const label   = `${this._meta(type).label}${icon.contains('returning') ? ' (retorno)' : ''}`
+                    + (town ? `: ${town}` : '');
+
+      return this._base(
+        isUnits ? `mov_${idNum}` : `dom_mov_${idNum}`,
+        type,
+        ts * 1000,
+        GA.game.getCurrentTownId(),
+        { modelId: Number(idNum), source: isUnits ? 'MovementsUnits' : 'DOM', label }
       );
     },
 
@@ -1584,6 +1624,8 @@
       '.unit_order',
       '.troop_slot',
       'div.item[data-id]',
+      // Lista de movimientos de la barra: cada fila es div#movement_<id> con data-timestamp
+      '#toolbar_activity_commands_list [id^="movement_"]',
     ].join(','),
 
     TIMER_SELECTOR: [
@@ -1638,12 +1680,16 @@
     _onBellClick(bell, row) {
       let alert = null;
 
+      // Lista de movimientos: la fila ya trae hora (data-timestamp) e id (movement_<id>)
+      const movRow = row.closest('[id^="movement_"]');
+      if (movRow) alert = GA.parser.fromMovementRow(movRow);
+
       // Intentar encontrar el model ID en el DOM (el juego usa data-id en rows)
       const modelId = row.dataset.id
         ?? row.dataset.commandId
         ?? row.closest('[data-id]')?.dataset.id;
 
-      if (modelId) {
+      if (!alert && modelId) {
         // Buscar en cada colección de comandos con su source real
         const cmdSources = [
           ['Attack',  GA.game.getAttacks()],
@@ -1865,14 +1911,26 @@
       // puede no existir al init (se crea lazily por el juego)
       new MutationObserver(mutations => {
         for (const m of mutations) {
-          if (m.target.id === 'toolbar_activity_trades_list'
+          if ((m.target.id === 'toolbar_activity_trades_list'
+               || m.target.id === 'toolbar_activity_commands_list')
               && m.target.style.display !== 'none') {
-            log('Trades dropdown visible — scanAndInject');
+            log('Dropdown visible — scanAndInject:', m.target.id);
             this.scanAndInject();
             break;
           }
         }
       }).observe(document.body, { attributes: true, attributeFilter: ['style'], subtree: true });
+
+      // La lista de movimientos se re-renderiza: reinyectar campanas en las filas nuevas.
+      // Debounce porque el propio scan inserta nodos y dispara este observer.
+      const cmdList = document.getElementById('toolbar_activity_commands_list');
+      if (cmdList) {
+        let t = null;
+        new MutationObserver(() => {
+          clearTimeout(t);
+          t = setTimeout(() => this.scanAndInject(), 150);
+        }).observe(cmdList, { childList: true, subtree: true });
+      }
 
       // Fallback: si la toolbar aún no está en el DOM, observar #main_area
       if (watched === 0) {
