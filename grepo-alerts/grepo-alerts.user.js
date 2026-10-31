@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.4a
+// @version      0.2.4b
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.4';
+  GA.VERSION        = '0.2.4b';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -257,6 +257,9 @@
     getAttacks()       { return this._collection('Attack')?.models          || []; },
     getSupports()      { return this._collection('Support')?.models         || []; },
     getTrades()        { return this._collection('Trade')?.models           || []; },
+    // Movimientos de tropas con hora de llegada. 'Attack' solo trae un contador
+    // ({ town_id, incoming }), sin arrival_at; los ataques reales viven aquí.
+    getMovements()     { return this._collection('MovementsUnits')?.models  || []; },
     getBuildingOrders(){ return this._collection('BuildingBuildData')?.models || []; },
     getUnitOrders()    { return this._collection('UnitOrder')?.models        || []; },
 
@@ -283,7 +286,7 @@
      */
     hookCollections() {
       // Nombres reales de colecciones en Grepolis (verificado via MM.getCollections())
-      ['Attack', 'Support', 'Trade', 'BuildingBuildData', 'UnitOrder'].forEach(name => {
+      ['Attack', 'Support', 'Trade', 'MovementsUnits', 'BuildingBuildData', 'UnitOrder'].forEach(name => {
         const col = this._collection(name);
         if (!col || col._gaHooked) return;
         col._gaHooked = true;
@@ -304,7 +307,7 @@
       });
 
       // Escanear modelos ya existentes en la colección (cargados antes del hook)
-      ['Attack', 'Support', 'Trade'].forEach(name => {
+      ['Attack', 'Support', 'Trade', 'MovementsUnits'].forEach(name => {
         const col = this._collection(name);
         if (!col?.models?.length) return;
         col.models.forEach(model => {
@@ -394,6 +397,33 @@
           source,
           label,
           resources: resources ?? null,
+        }
+      );
+    },
+
+    /**
+     * Movimiento de tropas de la colección 'MovementsUnits' (campos verificados en consola).
+     * Solo los ataques generan alerta; apoyos y retornos se ignoran.
+     * Distinto de fromCommand: aquí el origen/destino vienen como nombres de ciudad.
+     */
+    fromMovement(model) {
+      const a = model.attributes ?? model;
+      if (a.type !== 'attack') return null;
+      const tsMs = a.arrival_at ? a.arrival_at * 1000 : null;
+      if (!tsMs) return null;
+
+      const origin = a.town_name_origin ?? a.home_town_id ?? '?';
+      const dest   = a.town_name_destination ?? a.target_town_id ?? '?';
+
+      return this._base(
+        `mov_${model.id}`,
+        'attack',
+        tsMs,
+        a.target_town_id,
+        {
+          modelId: model.id,
+          source:  'MovementsUnits',
+          label:   `${this._meta('attack').label}: ${origin} → ${dest}`
         }
       );
     },
@@ -571,6 +601,8 @@
         alert = GA.parser.fromBuildingOrder(model);
       } else if (source === 'UnitOrder') {
         alert = GA.parser.fromUnitOrder(model);
+      } else if (source === 'MovementsUnits') {
+        alert = GA.parser.fromMovement(model);
       } else {
         // Attack, Support, Trade
         alert = GA.parser.fromCommand(model, source);
@@ -1621,6 +1653,11 @@
         for (const [src, models] of cmdSources) {
           const m = models.find(m => String(m.id) === modelId);
           if (m) { alert = GA.parser.fromCommand(m, src); break; }
+        }
+
+        if (!alert) {
+          const mov = GA.game.getMovements().find(m => String(m.id) === modelId);
+          if (mov) alert = GA.parser.fromMovement(mov);
         }
 
         // Buscar en Buildings
