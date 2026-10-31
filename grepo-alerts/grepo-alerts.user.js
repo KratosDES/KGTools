@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.4c
+// @version      0.2.5a
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*
-// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/feat/attack-times/grepo-alerts/grepo-alerts.user.js
-// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/feat/attack-times/grepo-alerts/grepo-alerts.user.js
+// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/beta/grepo-alerts/grepo-alerts.user.js
+// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/beta/grepo-alerts/grepo-alerts.user.js
 // @grant        unsafeWindow
 // @run-at       document-end
 // @noframes
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.4c';
+  GA.VERSION        = '0.2.5a';
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -648,8 +648,8 @@
         alert = GA.parser.fromCommand(model, source);
       }
 
-      if (alert) {
-        GA.tracker.track(alert);
+      if (alert && GA.tracker.track(alert)) {
+        GA.telemetry.count('alerts_auto_created');
       }
     }
   };
@@ -794,6 +794,171 @@
           log('Browser notification permission:', p);
         });
       }
+    }
+  };
+
+  // ════════════════════════════════════════════════════════════════
+  // MODULE: Telemetry
+  // Estadísticas de uso anónimas (nivel B): código de instalación aleatorio + mundo.
+  // Nunca se envía el ID de jugador, nombres, ciudades ni el contenido de las alertas.
+  // Política: GA.POLICY_URL. Spec: openspec/changes/usage-telemetry (repo Grepo-Smart).
+  // ════════════════════════════════════════════════════════════════
+  GA.TELEMETRY_URL  = '';   // URL del Worker (…/telemetry). Vacío = no se envía nada ni se muestra la ventana
+  GA.POLICY_URL     = 'https://kratosdes.github.io/KGTools/privacy/';
+  GA.POLICY_VERSION = '2026-10-31';
+
+  GA.telemetry = {
+
+    TOOL:     'grepo-alerts',
+    FEATURES: ['alerts_auto_created', 'bell_used', 'custom_alert_created', 'alert_notified'],
+    STORE_KEY: 'grepo_alerts_telemetry',   // sin world/player: no se cruza con el ID de jugador
+
+    EUROPE_TZ: ['Atlantic/Canary', 'Atlantic/Madeira', 'Atlantic/Azores', 'Atlantic/Reykjavik', 'Atlantic/Faroe'],
+    EUROPE_REGIONS: ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT',
+                     'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'IS', 'LI', 'NO', 'GB', 'CH'],
+
+    /**
+     * ¿Hay que pedir aceptación? Decide la zona horaria; el idioma solo desempata cuando no hay zona
+     * horaria legible y nunca exime a una zona europea (UT-10). Sin ninguna señal legible: no.
+     */
+    regionNeedsConsent(timeZone, languages) {
+      if (typeof timeZone === 'string' && timeZone) {
+        return timeZone.startsWith('Europe/') || this.EUROPE_TZ.includes(timeZone);
+      }
+      for (const lang of languages || []) {
+        const region = String(lang).split(/[-_]/).slice(1).find(p => /^[A-Za-z]{2}$/.test(p));
+        if (region && this.EUROPE_REGIONS.includes(region.toUpperCase())) return true;
+      }
+      return false;
+    },
+
+    consentNeeded() {
+      let tz;
+      try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { /* sin zona horaria */ }
+      const langs = navigator.languages?.length ? navigator.languages : (navigator.language ? [navigator.language] : []);
+      return this.regionNeedsConsent(tz, langs);
+    },
+
+    _read() {
+      try   { return JSON.parse(localStorage.getItem(this.STORE_KEY) || '{}'); }
+      catch { return {}; }
+    },
+
+    _write(patch) {
+      try   { localStorage.setItem(this.STORE_KEY, JSON.stringify({ ...this._read(), ...patch })); }
+      catch (e) { warn('Telemetry storage write:', e); }
+    },
+
+    /** Código aleatorio por instalación. No se deriva de nada del jugador (UT-07). */
+    getInstallId() {
+      const st = this._read();
+      if (st.installId) return st.installId;
+      try {
+        const id = crypto.randomUUID();
+        this._write({ installId: id });
+        return id;
+      } catch { return null; }
+    },
+
+    isEnabled() { return this._read().enabled !== false; },
+    setEnabled(on) { this._write({ enabled: !!on }); },
+
+    /** Hay una elección guardada para la versión actual de la política */
+    consentRecorded() {
+      const c = this._read().consent;
+      return !!c && c.policyVersion === GA.POLICY_VERSION;
+    },
+
+    consentAccepted() {
+      const c = this._read().consent;
+      return !!c && c.policyVersion === GA.POLICY_VERSION && c.choice === 'accepted';
+    },
+
+    setConsent(choice) {
+      this._write({
+        consent: { policyVersion: GA.POLICY_VERSION, choice, ts: Date.now() },
+        enabled: choice === 'accepted',
+      });
+    },
+
+    /** Suma un uso de función (solo las claves permitidas) */
+    count(feature) {
+      if (!GA.TELEMETRY_URL || !this.FEATURES.includes(feature) || !this.isEnabled()) return;
+      // En Europa no se cuenta nada hasta que la persona acepta
+      if (this.consentNeeded() && !this.consentAccepted()) return;
+      const counters = { ...(this._read().counters || {}) };
+      counters[feature] = Math.min((counters[feature] || 0) + 1, 10000);
+      this._write({ counters });
+    },
+
+    /** Envía como máximo una vez por día UTC. Un fallo se ignora y se reintenta en la próxima carga (UT-08). */
+    maybeSend(now = Date.now()) {
+      if (!GA.TELEMETRY_URL || !this.isEnabled()) return false;
+      if (this.consentNeeded() && !this.consentAccepted()) return false;
+
+      const day = new Date(now).toISOString().slice(0, 10);
+      if (this._read().lastDay === day) return false;
+
+      const world = GA._worldId();
+      if (!/^[a-z]{2,3}\d{1,4}$/.test(world)) return false;
+      const installId = this.getInstallId();
+      if (!installId) return false;
+
+      const sent = { ...(this._read().counters || {}) };
+      const payload = { install_id: installId, world, tool: this.TOOL, version: GA.VERSION, features: sent };
+
+      fetch(GA.TELEMETRY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'omit',
+        keepalive: true,
+      }).then(res => {
+        if (res.status !== 204) return;
+        // Descontar lo enviado: lo contado mientras la petición estaba en vuelo se conserva
+        const left = { ...(this._read().counters || {}) };
+        for (const k of Object.keys(sent)) {
+          left[k] = (left[k] || 0) - sent[k];
+          if (left[k] <= 0) delete left[k];
+        }
+        this._write({ lastDay: day, counters: left });
+      }).catch(() => { /* sin reintentos en bucle */ });
+      return true;
+    },
+
+    /** Al iniciar: pide aceptación si corresponde (y hay a dónde enviar), si no intenta enviar */
+    start() {
+      if (!GA.TELEMETRY_URL) return;
+      if (this.consentNeeded() && !this.consentRecorded()) this.showConsentWindow();
+      else this.maybeSend();
+    },
+
+    /** Ventana flotante de aceptación (UT-11). Se puede reabrir desde los ajustes. */
+    showConsentWindow() {
+      if (document.getElementById('ga_consent')) return;
+      const box = document.createElement('div');
+      box.id = 'ga_consent';
+      box.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:100001;'
+        + 'max-width:340px;padding:14px 16px;border:1px solid #8b6914;border-radius:8px;'
+        + 'background:linear-gradient(135deg,#2a1d0a,#1e1507);color:#d4b483;'
+        + 'font:13px/1.45 "Trebuchet MS",Tahoma,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.75)';
+      box.innerHTML = `
+        <div style="font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:#8b7a52">GrepoAlerts · Privacidad</div>
+        <div style="margin:6px 0 10px">Al usar nuestra extensión aceptas las
+          <a href="${GA.POLICY_URL}" target="_blank" rel="noopener noreferrer" style="color:#e8c87a">políticas</a>.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button id="ga_consent_yes" style="cursor:pointer;padding:6px 14px;border:1px solid #c8a96e;border-radius:6px;background:#c8a96e;color:#1e1507;font-weight:700">Usar Alarma</button>
+          <button id="ga_consent_no" style="cursor:pointer;padding:4px 8px;border:none;background:none;color:#8b7a52;text-decoration:underline;font-size:11px">Usar sin enviar datos</button>
+        </div>`;
+      document.body.appendChild(box);
+      const close = choice => {
+        this.setConsent(choice);
+        box.remove();
+        if (choice === 'accepted') this.maybeSend();
+        GA.ui._buildSettings?.();
+      };
+      box.querySelector('#ga_consent_yes').onclick = () => close('accepted');
+      box.querySelector('#ga_consent_no').onclick  = () => close('declined');
     }
   };
 
@@ -1566,6 +1731,16 @@
           <input type="range" class="ga_slider" min="0" max="1" step="0.1"
                  value="${s.volume ?? 0.6}" id="ga_vol_slider">
         </div>
+        ${GA.TELEMETRY_URL ? `
+        <div class="ga_srow">
+          <span>📊 Enviar estadísticas anónimas</span>
+          <div class="ga_toggle ${GA.telemetry.isEnabled() && (!GA.telemetry.consentNeeded() || GA.telemetry.consentAccepted()) ? 'ga_on' : ''}" id="ga_tel_toggle"></div>
+        </div>
+        <div style="font-size:10px;color:var(--ga-muted);margin:2px 0 6px">
+          <a href="${GA.POLICY_URL}" target="_blank" rel="noopener noreferrer" style="color:var(--ga-gold)">Políticas</a>
+          · Código de instalación: <span style="user-select:all">${GA.telemetry._read().installId ?? 'se crea al primer envío'}</span>
+          ${GA.telemetry.consentNeeded() ? ' · <a href="#" id="ga_tel_reopen" style="color:var(--ga-gold)">Ver aviso</a>' : ''}
+        </div>` : ''}
         <div style="text-align:center;margin-top:12px;font-size:10px;color:var(--ga-border)">
           GrepoAlerts v${GA.VERSION}<br>
           Solo monitoreo — sin automatización de acciones
@@ -1582,6 +1757,24 @@
           if (t.dataset.key === 'autoplayEnabled' && val && !GA.notifications._ctx)
             GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
         };
+      });
+
+      // Las estadísticas tienen su propio almacén (sin world/player), por eso no pasan por saveSettings
+      el.querySelector('#ga_tel_toggle')?.addEventListener('click', e => {
+        const t = e.currentTarget;
+        const turnOn = !t.classList.contains('ga_on');
+        // En Europa no se activa sin haber aceptado: se muestra la ventana
+        if (turnOn && GA.telemetry.consentNeeded() && !GA.telemetry.consentAccepted()) {
+          GA.telemetry.showConsentWindow();
+          return;
+        }
+        t.classList.toggle('ga_on', turnOn);
+        GA.telemetry.setEnabled(turnOn);
+        if (turnOn) GA.telemetry.maybeSend();
+      });
+      el.querySelector('#ga_tel_reopen')?.addEventListener('click', e => {
+        e.preventDefault();
+        GA.telemetry.showConsentWindow();
       });
 
       el.querySelector('#ga_vol_slider')?.addEventListener('input', e => {
@@ -1732,6 +1925,7 @@
         this._bellTip(bell, '✓ Ya registrado', 'info');
         return;
       }
+      GA.telemetry.count('bell_used');
 
       bell.classList.add('ga_tracked', 'ga_ringing');
       setTimeout(() => bell.classList.remove('ga_ringing'), 400);
@@ -1862,7 +2056,7 @@
         source:    'custom',
       };
 
-      GA.tracker.track(alert);
+      if (GA.tracker.track(alert)) GA.telemetry.count('custom_alert_created');
       wrap.style.display = 'none';
       this._render();
     },
@@ -1963,7 +2157,7 @@
     // Registrar listeners del EventBus
     GA.events.on('model:added',    data => GA.tracker.onModelAdded(data));
     GA.events.on('model:removed',  data => GA.tracker.onModelRemoved(data));
-    GA.events.on('alert:notified', ()   => { GA.ui.updateBadge(); GA.ui._render?.(); });
+    GA.events.on('alert:notified', ()   => { GA.ui.updateBadge(); GA.ui._render?.(); GA.telemetry.count('alert_notified'); });
     GA.events.on('alert:added',    ()   => GA.ui.updateBadge());
 
     // Restaurar alertas pendientes del storage (page reload recovery)
@@ -1974,6 +2168,9 @@
 
     // Inicializar interfaz
     GA.ui.init();
+
+    // Estadísticas anónimas: ventana de aceptación (solo Europa) o envío diario
+    GA.telemetry.start();
 
     log('Ready ✓');
   }
