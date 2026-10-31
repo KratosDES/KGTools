@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.5a
+// @version      0.2.5b
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,8 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.5a';
+  GA.VERSION        = '0.2.5b';
+  GA.VERSION_LABEL  = GA.VERSION + ' (beta)';   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
@@ -1530,7 +1531,7 @@
       p.id = 'ga_panel';
       p.innerHTML = `
         <div class="ga_ph">
-          <span class="ga_ph_title">🔔 GrepoAlerts <span style="font-weight:400;font-size:10px;opacity:.6">v${GA.VERSION}</span></span>
+          <span class="ga_ph_title">🔔 GrepoAlerts <span style="font-weight:400;font-size:10px;opacity:.6">v${GA.VERSION_LABEL}</span></span>
           <div class="ga_ph_actions">
             <button class="ga_ph_btn" id="ga_clear">Limpiar historial</button>
             <button class="ga_ph_btn ga_ph_close" id="ga_close" title="Cerrar" aria-label="Cerrar">✕</button>
@@ -1742,7 +1743,7 @@
           ${GA.telemetry.consentNeeded() ? ' · <a href="#" id="ga_tel_reopen" style="color:var(--ga-gold)">Ver aviso</a>' : ''}
         </div>` : ''}
         <div style="text-align:center;margin-top:12px;font-size:10px;color:var(--ga-border)">
-          GrepoAlerts v${GA.VERSION}<br>
+          GrepoAlerts v${GA.VERSION_LABEL}<br>
           Solo monitoreo — sin automatización de acciones
         </div>
       `;
@@ -2152,7 +2153,7 @@
   // Espera a que el game namespace (uw.MM) esté disponible
   // ════════════════════════════════════════════════════════════════
   function init() {
-    log(`GrepoAlerts v${GA.VERSION} — Initializing`);
+    log(`GrepoAlerts v${GA.VERSION_LABEL} — Initializing`);
 
     // Registrar listeners del EventBus
     GA.events.on('model:added',    data => GA.tracker.onModelAdded(data));
