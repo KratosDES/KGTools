@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.5c
+// @version      0.2.5d
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.5c';
+  GA.VERSION        = '0.2.5d';
   GA.VERSION_LABEL  = GA.VERSION + ' (beta)';   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -1012,6 +1012,14 @@
           flex-shrink: 0;
           position: relative;
         }
+        /* Lista de movimientos: superpuesta junto a la hora, fuera del flujo para no mover el nombre de la ciudad */
+        .ga_bell.ga_bell_mov {
+          position: absolute;
+          margin: 0;
+          top: 0;
+          left: 0;
+          visibility: hidden;   /* se muestra cuando _placeMovBell calcula su posición */
+        }
         .ga_bell:hover           { opacity: 1; transform: scale(1.2); }
         .ga_bell.ga_tracked      { opacity: 1; }
         .ga_bell.ga_tracked span { display: none; }
@@ -1843,6 +1851,30 @@
       document.querySelectorAll(`tr, li`).forEach(row => {
         if (row.querySelector(this.TIMER_SELECTOR)) this._addBell(row);
       });
+
+      // Reubicar las campanas de la lista de movimientos (la hora cambia de ancho o la lista se abre)
+      document.querySelectorAll('.ga_bell_mov').forEach(bell => {
+        const timeEl = bell.parentNode?.querySelector('.time');
+        if (timeEl) this._placeMovBell(bell, timeEl);
+      });
+    },
+
+    /**
+     * Coloca la campana de una fila de movimientos a la derecha del texto de la hora.
+     * Mide el texto (no el bloque, que ocupa todo el ancho). Si la lista está oculta no hay medidas:
+     * la campana queda invisible y se reintenta en el siguiente escaneo.
+     */
+    _placeMovBell(bell, timeEl) {
+      const wrap = bell.parentNode;
+      if (!wrap || !timeEl.isConnected) return;
+      const range = document.createRange();
+      range.selectNodeContents(timeEl);
+      const t = range.getBoundingClientRect();
+      const w = wrap.getBoundingClientRect();
+      if (!t.width || !w.width) return;
+      bell.style.left = `${Math.round(t.right - w.left + 4)}px`;
+      bell.style.top  = `${Math.round(t.top - w.top + (t.height - bell.offsetHeight) / 2)}px`;
+      bell.style.visibility = 'visible';
     },
 
     _addBell(row) {
@@ -1861,6 +1893,18 @@
         e.preventDefault();
         this._onBellClick(bell, row);
       };
+
+      // Lista de movimientos (ataque, defensa, espionaje…): .time y .town_link son bloques apilados.
+      // Insertar la campana entre ambos empuja el nombre de la ciudad, así que va superpuesta junto a la hora.
+      const movTime = row.matches('[id^="movement_"]') ? row.querySelector('.details_wrapper .time') : null;
+      if (movTime?.parentNode) {
+        const wrap = movTime.parentNode;
+        if (getComputedStyle(wrap).position === 'static') wrap.style.position = 'relative';
+        bell.classList.add('ga_bell_mov');
+        wrap.appendChild(bell);
+        this._placeMovBell(bell, movTime);
+        return;
+      }
 
       // Insertar después del primer timer encontrado, o al final de la fila
       const timer = row.querySelector(this.TIMER_SELECTOR);
