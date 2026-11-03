@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.5b
+// @version      0.2.5c
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.5b';
+  GA.VERSION        = '0.2.5c';
   GA.VERSION_LABEL  = GA.VERSION + ' (beta)';   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -804,7 +804,7 @@
   // Nunca se envía el ID de jugador, nombres, ciudades ni el contenido de las alertas.
   // Política: GA.POLICY_URL. Spec: openspec/changes/usage-telemetry (repo Grepo-Smart).
   // ════════════════════════════════════════════════════════════════
-  GA.TELEMETRY_URL  = '';   // URL del Worker (…/telemetry). Vacío = no se envía nada ni se muestra la ventana
+  GA.TELEMETRY_URL  = 'https://grepo-smart.lingering-boat-c9b7.workers.dev/telemetry';   // URL del Worker. Vacío = no se envía nada ni se muestra la ventana
   GA.POLICY_URL     = 'https://kratosdes.github.io/KGTools/privacy/';
   GA.POLICY_VERSION = '2026-10-31';
 

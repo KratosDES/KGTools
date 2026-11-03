@@ -9,7 +9,8 @@ const vm = require('vm');
 
 const SRC = process.argv[2] || path.join(__dirname, '..', 'grepo-alerts.user.js');
 const source = fs.readFileSync(SRC, 'utf8');
-const start = source.indexOf("GA.TELEMETRY_URL  = ''");
+const startMatch = /GA\.TELEMETRY_URL\s*=\s*'[^']*'/.exec(source);
+const start = startMatch ? startMatch.index : -1;
 const end = source.indexOf('// MODULE: UI');
 if (start < 0 || end < 0) throw new Error('telemetry module markers not found');
 const moduleCode = source.slice(start, source.lastIndexOf('// ═', end));
