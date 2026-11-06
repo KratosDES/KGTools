@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         GrepoAlerts — Alertas para Grepolis
-// @namespace    grepo-alerts
-// @version      0.2.5e
+// @name         GrepoAlerts (Beta) — Alertas para Grepolis
+// @namespace    grepo-alerts-beta
+// @version      0.3.0
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -33,6 +33,43 @@
   'use strict';
 
   // ════════════════════════════════════════════════════════════════
+  // CANAL + GUARDA CONTRA DOBLE INSTALACIÓN
+  // La versión estable y la beta son dos scripts independientes (distinto @name y @namespace) que
+  // comparten @match. Si están activos a la vez se pisarían win.GrepoAlerts, las campanas, el botón
+  // flotante y las alertas. La primera que carga se queda con la página; la segunda no se inicializa
+  // y avisa una vez por sesión. CHANNEL es lo único del cuerpo que cambia entre canales.
+  // ════════════════════════════════════════════════════════════════
+  // GUARD START
+  const CHANNEL = 'beta';   // 'beta' | 'stable'
+  const CHANNEL_NAME = { beta: 'GrepoAlerts (Beta)', stable: 'GrepoAlerts' };
+
+  if (win.__GrepoAlertsLoaded) {
+    const running = win.__GrepoAlertsLoaded;
+    try {
+      if (!sessionStorage.getItem('grepo_alerts_conflict_shown')) {
+        sessionStorage.setItem('grepo_alerts_conflict_shown', '1');
+        const box = document.createElement('div');
+        box.setAttribute('role', 'alert');
+        box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:100000;max-width:320px;padding:12px 14px;'
+          + 'background:#2b2418;color:#f1e6c8;border:1px solid #c8a96e;border-radius:6px;'
+          + 'font:12px/1.4 sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.5)';
+        box.textContent = `Tienes instaladas ${CHANNEL_NAME.stable} y ${CHANNEL_NAME.beta} al mismo tiempo. `
+          + `Ahora funciona ${CHANNEL_NAME[running] ?? running}. Desactiva o elimina una de las dos en Tampermonkey `
+          + 'para evitar conflictos.';
+        const close = document.createElement('button');
+        close.textContent = 'Entendido';
+        close.style.cssText = 'display:block;margin:8px 0 0 auto;padding:3px 10px;cursor:pointer';
+        close.onclick = () => box.remove();
+        box.appendChild(close);
+        document.body.appendChild(box);
+      }
+    } catch { /* sin sessionStorage ni DOM no hay aviso, pero tampoco conflicto */ }
+    return;
+  }
+  win.__GrepoAlertsLoaded = CHANNEL;
+  // GUARD END
+
+  // ════════════════════════════════════════════════════════════════
   // NAMESPACE
   // ════════════════════════════════════════════════════════════════
   const GA = win.GrepoAlerts = {};
@@ -40,8 +77,9 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.5e';
-  GA.VERSION_LABEL  = GA.VERSION + ' (beta)';   // lo que se muestra; el payload y @version llevan solo el número
+  GA.CHANNEL        = CHANNEL;
+  GA.VERSION        = '0.3.0';
+  GA.VERSION_LABEL  = GA.VERSION + (CHANNEL === 'beta' ? ' (Beta)' : '');   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
   GA.MAX_RETRIES    = 60;     // 30 segundos máximo de espera
