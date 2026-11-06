@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.2.5d
+// @version      0.2.5e
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
@@ -40,7 +40,7 @@
   // ════════════════════════════════════════════════════════════════
   // CONFIG
   // ════════════════════════════════════════════════════════════════
-  GA.VERSION        = '0.2.5d';
+  GA.VERSION        = '0.2.5e';
   GA.VERSION_LABEL  = GA.VERSION + ' (beta)';   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -466,6 +466,43 @@
         ts * 1000,
         GA.game.getCurrentTownId(),
         { modelId: Number(idNum), source: isUnits ? 'MovementsUnits' : 'DOM', label }
+      );
+    },
+
+    /**
+     * Fila del visor de órdenes (Resumen → Órdenes): li.js-command-row con id command_<n>
+     * o command_espionage_<n>. Todo sale del DOM: el tipo de data-command_type, la hora de
+     * .countdown (tiempo restante) y las ciudades de .cmd_span.
+     * El id es estable (cmdrow_…), así que pulsar la campana dos veces no duplica la alerta.
+     */
+    fromCommandRow(li) {
+      const m = li.id?.match(/^command_(?:([a-z]+)_)?(\d+)$/);
+      if (!m) return null;
+
+      const tsMs = GA.utils.parseTimer(li.querySelector('.countdown'));
+      if (!tsMs || tsMs <= Date.now()) return null;
+
+      const TYPE_BY_CMD = {
+        attack_land: 'attack', attack_sea: 'attack', revolt: 'attack',
+        attack_spy: 'spy', support: 'support', farm_attack: 'farm', abort: 'return_own_units',
+      };
+      const cmdType  = li.dataset.command_type;
+      const type     = TYPE_BY_CMD[cmdType] ?? cmdType ?? 'attack';
+      const incoming = !!li.querySelector('.overview_incoming');
+      // El visor siempre lista primero mi ciudad y después la otra; en una orden entrante la flecha va hacia mí
+      const towns = [...li.querySelectorAll('.cmd_span .gp_town_link')].map(a => a.textContent.trim());
+      const [origin, dest] = incoming ? [towns[1], towns[0]] : towns;
+
+      const meta  = this._meta(type);
+      const label = `${meta.label}${incoming ? ' entrante' : ''}`
+                  + (origin && dest ? `: ${origin} → ${dest}` : '');
+
+      return this._base(
+        `cmdrow_${m[1] ? m[1] + '_' : ''}${m[2]}`,
+        type,
+        tsMs,
+        GA.game.getCurrentTownId(),
+        { modelId: Number(m[2]), source: 'DOM', label }
       );
     },
 
@@ -1922,6 +1959,10 @@
       const movRow = row.closest('[id^="movement_"]');
       if (movRow) alert = GA.parser.fromMovementRow(movRow);
 
+      // Visor de órdenes (Resumen → Órdenes): filas li#command_<id> sin data-id
+      const cmdRow = row.closest('.js-command-row[id^="command_"]');
+      if (!alert && cmdRow) alert = GA.parser.fromCommandRow(cmdRow);
+
       // Intentar encontrar el model ID en el DOM (el juego usa data-id en rows)
       const modelId = row.dataset.id
         ?? row.dataset.commandId
@@ -2170,6 +2211,18 @@
           t = setTimeout(() => this.scanAndInject(), 150);
         }).observe(cmdList, { childList: true, subtree: true });
       }
+
+      // Ventana Resumen → Órdenes (visor premium): el juego la crea aparte de la barra, así que ningún
+      // observador de arriba se entera al abrirla ni al refrescarla. Se reacciona solo cuando aparecen
+      // filas de órdenes, para no escanear en cada tick del juego. La campana no es una fila: no hay bucle.
+      let tw = null;
+      const isCmdNode = n => n.nodeType === 1
+        && (n.matches?.('.js-command-row, #command_overview') || !!n.querySelector?.('.js-command-row'));
+      new MutationObserver(mutations => {
+        if (!mutations.some(m => [...m.addedNodes].some(isCmdNode))) return;
+        clearTimeout(tw);
+        tw = setTimeout(() => this.scanAndInject(), 150);
+      }).observe(document.body, { childList: true, subtree: true });
 
       // Fallback: si la toolbar aún no está en el DOM, observar #main_area
       if (watched === 0) {
