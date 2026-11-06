@@ -1,14 +1,14 @@
 // ==UserScript==
-// @name         GrepoAlerts (Beta) — Alertas para Grepolis
-// @namespace    grepo-alerts-beta
+// @name         GrepoAlerts — Alertas para Grepolis
+// @namespace    grepo-alerts
 // @version      0.3.0
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*
-// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/beta/grepo-alerts/grepo-alerts.user.js
-// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/beta/grepo-alerts/grepo-alerts.user.js
+// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/main/grepo-alerts/grepo-alerts.user.js
+// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/main/grepo-alerts/grepo-alerts.user.js
 // @grant        unsafeWindow
 // @run-at       document-end
 // @noframes
@@ -40,7 +40,7 @@
   // y avisa una vez por sesión. CHANNEL es lo único del cuerpo que cambia entre canales.
   // ════════════════════════════════════════════════════════════════
   // GUARD START
-  const CHANNEL = 'beta';   // 'beta' | 'stable'
+  const CHANNEL = 'stable';   // 'beta' | 'stable'
   const CHANNEL_NAME = { beta: 'GrepoAlerts (Beta)', stable: 'GrepoAlerts' };
 
   if (win.__GrepoAlertsLoaded) {
