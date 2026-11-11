@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts (Beta) — Alertas para Grepolis
 // @namespace    grepo-alerts-beta
-// @version      0.3.2a
+// @version      0.3.2b
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27%232b1d10%27%2F%3E%3Cpath%20d%3D%27M32%2012c-9%200-15%207-15%2016v8l-5%208h40l-5-8v-8c0-9-6-16-15-16z%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2752%27%20r%3D%275%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2716%27%20r%3D%279%27%20fill%3D%27%23e5533d%27%2F%3E%3C%2Fsvg%3E
@@ -79,7 +79,7 @@
   // CONFIG
   // ════════════════════════════════════════════════════════════════
   GA.CHANNEL        = CHANNEL;
-  GA.VERSION        = '0.3.2a';
+  GA.VERSION        = '0.3.2b';
   GA.VERSION_LABEL  = GA.VERSION + (CHANNEL === 'beta' ? ' (Beta)' : '');   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -757,11 +757,33 @@
       if (s.browserEnabled) this.browser(alert);
     },
 
+    /** Crea el AudioContext bajo demanda y lo reanuda si el navegador lo dejó suspendido */
+    _unlockAudio() {
+      try {
+        const ctx = this._audioCtx();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        return ctx;
+      } catch (e) {
+        log('Audio unlock error:', e);
+        return null;
+      }
+    },
+
+    /** Desbloquea el audio en el primer gesto del usuario (click, tecla o toque) */
+    armAudioUnlock() {
+      const events = ['pointerdown', 'keydown', 'touchstart'];
+      const unlock = () => {
+        events.forEach(ev => document.removeEventListener(ev, unlock, true));
+        this._unlockAudio();
+      };
+      events.forEach(ev => document.addEventListener(ev, unlock, true));
+    },
+
     /** Alarma tipo despertador — repite la secuencia 3 veces */
     sound() {
-      if (!this._ctx) return;
       try {
-        const ctx     = this._ctx;
+        const ctx = this._unlockAudio();
+        if (!ctx) return;
         const vol     = Math.min(1, Math.max(0, GA.storage.getSettings().volume ?? 0.6));
         const now     = ctx.currentTime;
         this._oscillators = [];
@@ -1542,8 +1564,7 @@
       fab.title = 'GrepoAlerts';
       fab.innerHTML = `🔔<span id="ga_fab_badge"></span>`;
       fab.onclick = () => {
-        if (!GA.notifications._ctx)
-          GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        GA.notifications._unlockAudio();
         this.togglePanel();
       };
       this._fab = fab;
@@ -1839,8 +1860,8 @@
           GA.storage.saveSettings({ [t.dataset.key]: val });
           if (t.dataset.key === 'browserEnabled' && val)
             GA.notifications.requestBrowserPermission();
-          if (t.dataset.key === 'autoplayEnabled' && val && !GA.notifications._ctx)
-            GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (t.dataset.key === 'autoplayEnabled' && val)
+            GA.notifications._unlockAudio();
         };
       });
 
@@ -2305,6 +2326,9 @@
 
     // Inicializar interfaz
     GA.ui.init();
+
+    // El audio se desbloquea con el primer gesto, para que la alarma suene tras recargar
+    GA.notifications.armAudioUnlock();
 
     // Estadísticas anónimas: ventana de aceptación (solo Europa) o envío diario
     GA.telemetry.start();
