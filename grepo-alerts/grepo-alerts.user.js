@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.3.0
+// @version      0.3.3
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
+// @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27%232b1d10%27%2F%3E%3Cpath%20d%3D%27M32%2012c-9%200-15%207-15%2016v8l-5%208h40l-5-8v-8c0-9-6-16-15-16z%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2752%27%20r%3D%275%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2716%27%20r%3D%279%27%20fill%3D%27%23e5533d%27%2F%3E%3C%2Fsvg%3E
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*
@@ -78,7 +79,7 @@
   // CONFIG
   // ════════════════════════════════════════════════════════════════
   GA.CHANNEL        = CHANNEL;
-  GA.VERSION        = '0.3.0';
+  GA.VERSION        = '0.3.3';
   GA.VERSION_LABEL  = GA.VERSION + (CHANNEL === 'beta' ? ' (Beta)' : '');   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -756,11 +757,33 @@
       if (s.browserEnabled) this.browser(alert);
     },
 
+    /** Crea el AudioContext bajo demanda y lo reanuda si el navegador lo dejó suspendido */
+    _unlockAudio() {
+      try {
+        const ctx = this._audioCtx();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+        return ctx;
+      } catch (e) {
+        log('Audio unlock error:', e);
+        return null;
+      }
+    },
+
+    /** Desbloquea el audio en el primer gesto del usuario (click, tecla o toque) */
+    armAudioUnlock() {
+      const events = ['pointerdown', 'keydown', 'touchstart'];
+      const unlock = () => {
+        events.forEach(ev => document.removeEventListener(ev, unlock, true));
+        this._unlockAudio();
+      };
+      events.forEach(ev => document.addEventListener(ev, unlock, true));
+    },
+
     /** Alarma tipo despertador — repite la secuencia 3 veces */
     sound() {
-      if (!this._ctx) return;
       try {
-        const ctx     = this._ctx;
+        const ctx = this._unlockAudio();
+        if (!ctx) return;
         const vol     = Math.min(1, Math.max(0, GA.storage.getSettings().volume ?? 0.6));
         const now     = ctx.currentTime;
         this._oscillators = [];
@@ -1541,8 +1564,7 @@
       fab.title = 'GrepoAlerts';
       fab.innerHTML = `🔔<span id="ga_fab_badge"></span>`;
       fab.onclick = () => {
-        if (!GA.notifications._ctx)
-          GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
+        GA.notifications._unlockAudio();
         this.togglePanel();
       };
       this._fab = fab;
@@ -1616,7 +1638,6 @@
         <div class="ga_ph">
           <span class="ga_ph_title">🔔 GrepoAlerts <span style="font-weight:400;font-size:10px;opacity:.6">v${GA.VERSION_LABEL}</span></span>
           <div class="ga_ph_actions">
-            <button class="ga_ph_btn" id="ga_clear">Limpiar historial</button>
             <button class="ga_ph_btn ga_ph_close" id="ga_close" title="Cerrar" aria-label="Cerrar">✕</button>
           </div>
         </div>
@@ -1630,14 +1651,6 @@
         <div class="ga_content" id="ga_c_history" style="display:none"></div>
         <div class="ga_content" id="ga_c_settings" style="display:none"></div>
       `;
-
-      p.querySelector('#ga_clear').onclick = () => {
-        GA.storage.getAlerts()
-          .filter(a => a.status === 'notified')
-          .forEach(a => GA.storage.removeAlert(a.id));
-        this._render();
-        this.updateBadge();
-      };
 
       p.querySelector('#ga_close').onclick = () => this.closePanel();
 
@@ -1717,6 +1730,14 @@
       this.updateBadge();
     },
 
+    /** Borra del almacenamiento todas las alertas ya notificadas (las pendientes no se tocan) */
+    _clearHistory() {
+      GA.storage.getAlerts()
+        .filter(a => a.status === 'notified')
+        .forEach(a => GA.storage.removeAlert(a.id));
+      this._render();
+    },
+
     _renderList(tab) {
       const el = document.getElementById(`ga_c_${tab}`);
       if (!el || el.style.display === 'none') return;
@@ -1741,7 +1762,11 @@
         return;
       }
 
-      el.innerHTML = list.map(a => {
+      const historyBar = tab === 'history'
+        ? `<div style="text-align:right;padding:6px 0"><button class="ga_ph_btn" id="ga_clear" style="font-size:11px">Limpiar historial</button></div>`
+        : '';
+
+      el.innerHTML = historyBar + list.map(a => {
         const remaining = a.tsMs - Date.now();
         const cd  = a.status === 'pending'
           ? GA.utils.formatRelative(a.tsMs)
@@ -1773,6 +1798,9 @@
           this.updateBadge();
         };
       });
+
+      const clearBtn = el.querySelector('#ga_clear');
+      if (clearBtn) clearBtn.onclick = () => this._clearHistory();
 
       if (tab === 'active') {
         const addBtn = document.createElement('div');
@@ -1838,8 +1866,8 @@
           GA.storage.saveSettings({ [t.dataset.key]: val });
           if (t.dataset.key === 'browserEnabled' && val)
             GA.notifications.requestBrowserPermission();
-          if (t.dataset.key === 'autoplayEnabled' && val && !GA.notifications._ctx)
-            GA.notifications._ctx = new (window.AudioContext || window.webkitAudioContext)();
+          if (t.dataset.key === 'autoplayEnabled' && val)
+            GA.notifications._unlockAudio();
         };
       });
 
@@ -2068,18 +2096,18 @@
           <div class="ga_custom_title">Nueva alerta personalizada</div>
           <input type="text" class="ga_input" id="ga_ct" placeholder="Texto de la notificación" maxlength="80">
           <div class="ga_radio_row">
-            <label><input type="radio" name="ga_ctype" value="exact" checked> Hora exacta</label>
-            <label><input type="radio" name="ga_ctype" value="countdown"> Cuenta regresiva</label>
+            <label><input type="radio" name="ga_ctype" value="countdown" checked> Cuenta regresiva</label>
+            <label><input type="radio" name="ga_ctype" value="exact"> Hora exacta</label>
           </div>
-          <div class="ga_form_row" id="ga_row_exact">
-            HH <input type="number" class="ga_time_in" id="ga_c_hh" min="0" max="23" value="00">
-            : MM <input type="number" class="ga_time_in" id="ga_c_mm" min="0" max="59" value="00">
-            : SS <input type="number" class="ga_time_in" id="ga_c_ss" min="0" max="59" value="00">
-          </div>
-          <div class="ga_form_row" id="ga_row_cd" style="display:none">
+          <div class="ga_form_row" id="ga_row_cd">
             HH <input type="number" class="ga_time_in" id="ga_c_chh" min="0" max="99" value="00">
             : MM <input type="number" class="ga_time_in" id="ga_c_cmm" min="0" max="59" value="00">
             : SS <input type="number" class="ga_time_in" id="ga_c_css" min="0" max="59" value="00">
+          </div>
+          <div class="ga_form_row" id="ga_row_exact" style="display:none">
+            HH <input type="number" class="ga_time_in" id="ga_c_hh" min="0" max="23" value="00">
+            : MM <input type="number" class="ga_time_in" id="ga_c_mm" min="0" max="59" value="00">
+            : SS <input type="number" class="ga_time_in" id="ga_c_ss" min="0" max="59" value="00">
           </div>
           <div class="ga_form_actions">
             <button class="ga_btn_add" id="ga_ct_add">Agregar</button>
@@ -2304,6 +2332,9 @@
 
     // Inicializar interfaz
     GA.ui.init();
+
+    // El audio se desbloquea con el primer gesto, para que la alarma suene tras recargar
+    GA.notifications.armAudioUnlock();
 
     // Estadísticas anónimas: ventana de aceptación (solo Europa) o envío diario
     GA.telemetry.start();
