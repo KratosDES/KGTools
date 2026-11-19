@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts (Beta) — Alertas para Grepolis
 // @namespace    grepo-alerts-beta
-// @version      0.3.3
+// @version      0.3.3a
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27%232b1d10%27%2F%3E%3Cpath%20d%3D%27M32%2012c-9%200-15%207-15%2016v8l-5%208h40l-5-8v-8c0-9-6-16-15-16z%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2752%27%20r%3D%275%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2716%27%20r%3D%279%27%20fill%3D%27%23e5533d%27%2F%3E%3C%2Fsvg%3E
@@ -79,7 +79,7 @@
   // CONFIG
   // ════════════════════════════════════════════════════════════════
   GA.CHANNEL        = CHANNEL;
-  GA.VERSION        = '0.3.3';
+  GA.VERSION        = '0.3.3a';
   GA.VERSION_LABEL  = GA.VERSION + (CHANNEL === 'beta' ? ' (Beta)' : '');   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -143,18 +143,71 @@
     },
 
     /** Formatea timestamp como "HH:MM" usando la timezone del servidor del juego */
-    formatTime(tsMs) {
+    formatTime(tsMs, tz) {
       try {
-        const tz = (win.uw || win).Game?.player_timezone;
-        return new Intl.DateTimeFormat([], {
-          timeZone: tz,
+        const zone = tz ?? (win.uw || win).Game?.player_timezone;
+        return new Intl.DateTimeFormat('en-GB', {
+          timeZone: zone,
           hour: '2-digit',
           minute: '2-digit',
-          hour12: false
+          hour12: false,
+          hourCycle: 'h23',
         }).format(new Date(tsMs));
       } catch {
-        return new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
       }
+    },
+
+    /**
+     * Wall-clock HH:MM:SS in an IANA zone (game `player_timezone`) → epoch ms.
+     * Uses the offset at the target instant (DST-safe). If that instant is not
+     * in the future, rolls to the next civil day in that zone.
+     */
+    gameWallTimeToMs(hh, mm, ss, nowMs, tz) {
+      hh = Number(hh) || 0;
+      mm = Number(mm) || 0;
+      ss = Number(ss) || 0;
+      const now = nowMs ?? Date.now();
+      if (!tz) {
+        const d = new Date(now);
+        d.setHours(hh, mm, ss, 0);
+        if (d.getTime() <= now) d.setDate(d.getDate() + 1);
+        return d.getTime();
+      }
+
+      const partsOf = (ms) => {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: tz,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false,
+          hourCycle: 'h23',
+        }).formatToParts(new Date(ms));
+        const get = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+        let hour = get('hour');
+        if (hour === 24) hour = 0;
+        return { y: get('year'), mo: get('month'), d: get('day'), h: hour, mi: get('minute'), s: get('second') };
+      };
+
+      const wallToUtc = (y, mo, d, h, mi, s) => {
+        let guess = Date.UTC(y, mo - 1, d, h, mi, s);
+        for (let i = 0; i < 3; i++) {
+          const p = partsOf(guess);
+          const offset = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - guess;
+          const next = Date.UTC(y, mo - 1, d, h, mi, s) - offset;
+          if (next === guess) break;
+          guess = next;
+        }
+        return guess;
+      };
+
+      const today = partsOf(now);
+      let ts = wallToUtc(today.y, today.mo, today.d, hh, mm, ss);
+      if (ts <= now) {
+        const nxt = new Date(Date.UTC(today.y, today.mo - 1, today.d + 1));
+        ts = wallToUtc(nxt.getUTCFullYear(), nxt.getUTCMonth() + 1, nxt.getUTCDate(), hh, mm, ss);
+      }
+      return ts;
     },
 
     /** ID único corto */
@@ -2128,51 +2181,6 @@
       wrap.querySelector('#ga_ct_add').onclick    = () => this._addCustomAlert(wrap);
     },
 
-    /**
-     * Convierte HH:MM:SS en la timezone del juego a un timestamp Unix (ms).
-     * Evita el bug donde browser timezone y game timezone difieren.
-     */
-    _gameTimeToTimestamp(hh, mm, ss = 0) {
-      const tz = (win.uw || win).Game?.player_timezone;
-      const now = new Date();
-
-      if (!tz) {
-        // Fallback: timezone del browser (no hay juego cargado)
-        const d = new Date(now);
-        d.setHours(hh, mm, ss, 0);
-        return d.getTime();
-      }
-
-      // Obtener la hora actual en timezone del juego
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false
-      }).formatToParts(now);
-
-      const get = (type) => parseInt(parts.find(p => p.type === type).value);
-      const gameH = get('hour') === 24 ? 0 : get('hour'); // Intl puede devolver 24
-      const gameM = get('minute');
-      const gameS = get('second');
-      const gameY = get('year');
-      const gameMo = get('month');
-      const gameD = get('day');
-
-      // Construir Date en UTC, luego ajustar por offset timezone
-      // Crear fecha UTC con los valores del juego
-      const gameNow = Date.UTC(gameY, gameMo - 1, gameD, gameH, gameM, gameS);
-      // Offset entre此刻 en game timezone y此刻 en UTC
-      const offsetMs = gameNow - now.getTime();
-
-      // Target: midnight UTC del día de hoy + offset + hh:mm
-      const targetUtc = Date.UTC(gameY, gameMo - 1, gameD, hh, mm, ss) - offsetMs;
-
-      // Si el target ya pasó, sumar 1 día
-      const oneDayMs = 86400000;
-      return targetUtc <= now.getTime() ? targetUtc + oneDayMs : targetUtc;
-    },
-
     _addCustomAlert(wrap) {
       const label = wrap.querySelector('#ga_ct')?.value?.trim();
       if (!label) { wrap.querySelector('#ga_ct').focus(); return; }
@@ -2184,7 +2192,8 @@
         const hh = parseInt(wrap.querySelector('#ga_c_hh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_mm').value || 0);
         const ss = parseInt(wrap.querySelector('#ga_c_ss').value || 0);
-        tsMs = this._gameTimeToTimestamp(hh, mm, ss);
+        tsMs = GA.utils.gameWallTimeToMs(
+          hh, mm, ss, Date.now(), (win.uw || win).Game?.player_timezone);
       } else {
         const hh = parseInt(wrap.querySelector('#ga_c_chh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_cmm').value || 0);
