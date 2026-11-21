@@ -2,7 +2,7 @@
 
 Herramienta hermana de [grepo-alerts](../../../Grepo-Smart-dev/tools/grepo-alerts/). Pensada para llevar el control de los miembros de una alianza y su participación (por ejemplo, la respuesta a los boletines), sin hojas de cálculo intermedias.
 
-**Estado:** prototipo en la rama `coder`. La lógica está probada con `test/core-harness.js`; la captura y el panel aún no se han probado dentro del juego.
+**Estado:** prototipo, canal beta (rama `beta`). Hay un script beta y uno estable independientes; no instales los dos a la vez. La lógica está probada con `test/core-harness.js`; la captura y el panel aún no se han probado dentro del juego.
 
 ## Instalación
 

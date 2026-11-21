@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         GrepoAlliance — Gestión de alianzas para Grepolis
-// @namespace    grepo-alliance
+// @name         GrepoAlliance (Beta) — Gestión de alianzas para Grepolis
+// @namespace    grepo-alliance-beta
 // @version      0.1.1a
 // @description  Seguimiento de miembros y participación de una alianza. Sin automatización.
 // @author       KratosDES
@@ -8,6 +8,8 @@
 // @match        *://*.grepolis.com/game/*
 // @exclude      *://forum.*.grepolis.com/*
 // @exclude      *://wiki.*.grepolis.com/*
+// @updateURL    https://raw.githubusercontent.com/KratosDES/KGTools/beta/grepo-alliance/grepo-alliance.user.js
+// @downloadURL  https://raw.githubusercontent.com/KratosDES/KGTools/beta/grepo-alliance/grepo-alliance.user.js
 // @grant        unsafeWindow
 // @run-at       document-end
 // @noframes
@@ -30,8 +32,49 @@
   'use strict';
 
   const uw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+
+  // ════════════════════════════════════════════════════════════════
+  // CANAL + GUARDA CONTRA DOBLE INSTALACIÓN
+  // La versión estable y la beta son dos scripts independientes (distinto @name y @namespace) que
+  // comparten @match. Si están activos a la vez se duplicarían el botón flotante y el panel. La
+  // primera que carga se queda con la página; la segunda no se inicializa y avisa una vez por sesión.
+  // CHANNEL es lo único del cuerpo que cambia entre canales.
+  // ════════════════════════════════════════════════════════════════
+  const win = uw;
+  // GUARD START
+  const CHANNEL = 'beta';   // 'beta' | 'stable'
+  const CHANNEL_NAME = { beta: 'GrepoAlliance (Beta)', stable: 'GrepoAlliance' };
+
+  if (win.__GrepoAllianceLoaded) {
+    const running = win.__GrepoAllianceLoaded;
+    try {
+      if (!sessionStorage.getItem('grepo_alliance_conflict_shown')) {
+        sessionStorage.setItem('grepo_alliance_conflict_shown', '1');
+        const box = document.createElement('div');
+        box.setAttribute('role', 'alert');
+        box.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:100000;max-width:320px;padding:12px 14px;'
+          + 'background:#2b2418;color:#f1e6c8;border:1px solid #c8a96e;border-radius:6px;'
+          + 'font:12px/1.4 sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.5)';
+        box.textContent = `Tienes instaladas ${CHANNEL_NAME.stable} y ${CHANNEL_NAME.beta} al mismo tiempo. `
+          + `Ahora funciona ${CHANNEL_NAME[running] ?? running}. Desactiva o elimina una de las dos en Tampermonkey `
+          + 'para evitar conflictos.';
+        const close = document.createElement('button');
+        close.textContent = 'Entendido';
+        close.style.cssText = 'display:block;margin:8px 0 0 auto;padding:3px 10px;cursor:pointer';
+        close.onclick = () => box.remove();
+        box.appendChild(close);
+        document.body.appendChild(box);
+      }
+    } catch { /* sin sessionStorage ni DOM no hay aviso, pero tampoco conflicto */ }
+    return;
+  }
+  win.__GrepoAllianceLoaded = CHANNEL;
+  // GUARD END
+
   const GAL = {};
+  GAL.CHANNEL = CHANNEL;
   GAL.VERSION = '0.1.1a';
+  GAL.VERSION_LABEL = GAL.VERSION + (CHANNEL === 'beta' ? ' (Beta)' : '');   // lo que se muestra; @version lleva solo el número
 
   // ═══ MODULE: CORE ═══ (puro: sin DOM ni almacenamiento; lo ejercita test/core-harness.js)
   GAL.core = (function () {
@@ -633,7 +676,7 @@
       const keys = Object.keys(GAL.state.bulletins).sort((a, b) => GAL.state.bulletins[b].firstSeen - GAL.state.bulletins[a].firstSeen);
       if (!keys.includes(this.selected)) { this.selected = null; this._detailOpen = false; }
 
-      let html = '<div class="gal_head"><span>GrepoAlliance v' + GAL.VERSION + (this._config ? ' — Configuración' : ' — Boletines') + '</span>'
+      let html = '<div class="gal_head"><span>GrepoAlliance v' + GAL.VERSION_LABEL + (this._config ? ' — Configuración' : ' — Boletines') + '</span>'
         + '<span><span class="gal_close" data-act="config" title="Configuración">' + (this._config ? '◀ Volver' : '⚙') + '</span>'
         + ' <span class="gal_close" data-act="close">✕</span></span></div>';
 
@@ -960,6 +1003,6 @@
     GAL.state = GAL.storage.load();
     GAL.ui.init();
     GAL.capture.start();
-    console.info('[GrepoAlliance] v' + GAL.VERSION + ' cargado.');
+    console.info('[GrepoAlliance] v' + GAL.VERSION_LABEL + ' cargado.');
   })(0);
 })();
