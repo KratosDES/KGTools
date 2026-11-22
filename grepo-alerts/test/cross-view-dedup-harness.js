@@ -77,6 +77,43 @@ check('stored alert without towns is not a match', (sandbox.stored = [{ ...premi
 check('alert without towns never matches (auto-tracked, bldg, custom)', (sandbox.stored = [premium], !storage.findEquivalent({ ...normal, towns: undefined })));
 check('same id is not its own duplicate', (sandbox.stored = [premium], !storage.findEquivalent(premium)));
 
+// Real case reported after 0.3.3f: the normal view registered mov_1829609890 through fromMovementRow
+// (stable id, exact seconds). It must carry its towns too, or the premium click never finds it.
+const viaMovementRow = {
+  id: 'mov_1829609890', status: 'pending', source: 'MovementsUnits', type: 'attack_takeover',
+  tsMs: 1795328601000, towns: ['Puerto Ayora'],
+};
+sandbox.stored = [viaMovementRow];
+check('premium click finds the normal-view alert that has a stable mov_ id (1.15s apart)', !!storage.findEquivalent(premium));
+sandbox.stored = [premium];
+check('normal-view mov_ click finds the premium alert', !!storage.findEquivalent(viaMovementRow));
+
+const movRowSrc = cut('fromMovementRow(wrap) {', 'fromCommandRow(li) {');
+const movSrc = cut('fromMovement(model) {', 'fromMovementRow(wrap) {');
+vm.runInNewContext(`
+  GA.game.isOwnTown = () => false;
+  parser2 = Object.assign({}, parser, {
+    _fromIconClasses: icon => ({ type: icon.type, returning: false }),
+    ${movRowSrc},
+    ${movSrc}
+  });
+`, sandbox);
+const row = {
+  id: 'movement_1829609890', dataset: { timestamp: '1795328601', commandtype: 'unit_movements' },
+  querySelector: sel => (sel === '.icon' ? { type: 'attack_takeover' } : sel === '.town_link a' ? { textContent: ' Puerto Ayora ' } : null),
+};
+const fromRow = sandbox.parser2.fromMovementRow(row);
+check('fromMovementRow keeps the row town in towns',
+  fromRow && JSON.stringify(fromRow.towns) === JSON.stringify(['Puerto Ayora']), fromRow && JSON.stringify(fromRow.towns));
+
+const auto = sandbox.parser2.fromMovement({ id: 5, attributes: {
+  type: 'attack', arrival_at: 1795328601, town_name_origin: '07A-Desembarco', town_name_destination: 'Puerto Ayora', target_town_id: 106,
+} });
+check('fromMovement (auto-track) keeps origin and destination names',
+  auto && JSON.stringify(auto.towns) === JSON.stringify(['07A-Desembarco', 'Puerto Ayora']), auto && JSON.stringify(auto.towns));
+const autoIds = sandbox.parser2.fromMovement({ id: 6, attributes: { type: 'attack', arrival_at: 1795328601, home_town_id: 1, target_town_id: 106 } });
+check('fromMovement does not store numeric id fallbacks as city names', autoIds && (!autoIds.towns || autoIds.towns.length === 0), autoIds && JSON.stringify(autoIds.towns));
+
 // Wiring: the bell must ask storage for an equivalent alert before tracking.
 const handler = source.slice(source.indexOf('_onBellClick(bell, row) {'));
 const iFind = handler.indexOf('findEquivalent(');
