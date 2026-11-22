@@ -39,6 +39,7 @@ vm.runInNewContext(`
   };
   parser = {
     TYPES: { attack: { label: 'Ataque' }, support: { label: 'Apoyo' }, colonization: { label: 'Colonización' },
+             attack_takeover: { label: 'Conquista' },
              spy: { label: 'Espionaje' }, transport: { label: 'Transporte' } },
     _meta(type) { return this.TYPES[type] || { label: type || 'Movimiento' }; },
     _base: (id, type, tsMs, townId, extra) => ({ id, type, tsMs, townId, label: extra?.label, ...extra }),
@@ -73,6 +74,12 @@ check('spy row is espionage', spy && spy.type === 'spy' && spy.label === 'Espion
 
 const ret = parser.fromRow(makeRow({ icon: 'icon attack_type32x32 attack_land returning' }));
 check('returning attack troops are labeled (retorno)', ret && ret.type === 'attack' && ret.label === 'Ataque (retorno): Ciudad de ValhallaAwaits', ret && ret.label);
+
+const takeover = parser.fromRow(makeRow({ icon: 'icon attack_type32x32 attack_takeover outgoing', town: 'Puerto Ayora' }));
+check('settler takeover row is Conquista, not Transporte',
+  takeover && takeover.type === 'attack_takeover' && takeover.label === 'Conquista: Puerto Ayora', takeover && takeover.label);
+check('toolbar row keeps its town for cross-view matching',
+  takeover && JSON.stringify(takeover.towns) === JSON.stringify(['Puerto Ayora']), takeover && JSON.stringify(takeover.towns));
 
 const sup = parser.fromRow(makeRow({ icon: 'icon support outgoing' }));
 check('support row is support', sup && sup.type === 'support', sup && sup.type);
