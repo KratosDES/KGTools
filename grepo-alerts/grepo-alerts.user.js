@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GrepoAlerts — Alertas para Grepolis
 // @namespace    grepo-alerts
-// @version      0.3.3
+// @version      0.3.4
 // @description  Alertas de movimientos, construcciones y eventos personalizados. Sin automatización.
 // @author       KratosDES
 // @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27%232b1d10%27%2F%3E%3Cpath%20d%3D%27M32%2012c-9%200-15%207-15%2016v8l-5%208h40l-5-8v-8c0-9-6-16-15-16z%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2752%27%20r%3D%275%27%20fill%3D%27%23f0b429%27%2F%3E%3Ccircle%20cx%3D%2748%27%20cy%3D%2716%27%20r%3D%279%27%20fill%3D%27%23e5533d%27%2F%3E%3C%2Fsvg%3E
@@ -79,7 +79,7 @@
   // CONFIG
   // ════════════════════════════════════════════════════════════════
   GA.CHANNEL        = CHANNEL;
-  GA.VERSION        = '0.3.3';
+  GA.VERSION        = '0.3.4';
   GA.VERSION_LABEL  = GA.VERSION + (CHANNEL === 'beta' ? ' (Beta)' : '');   // lo que se muestra; el payload y @version llevan solo el número
   GA.STORAGE_PREFIX = 'grepo_alerts';
   GA.POLL_INTERVAL  = 500;    // ms — intervalo de polling para init
@@ -143,18 +143,71 @@
     },
 
     /** Formatea timestamp como "HH:MM" usando la timezone del servidor del juego */
-    formatTime(tsMs) {
+    formatTime(tsMs, tz) {
       try {
-        const tz = (win.uw || win).Game?.player_timezone;
-        return new Intl.DateTimeFormat([], {
-          timeZone: tz,
+        const zone = tz ?? (win.uw || win).Game?.player_timezone;
+        return new Intl.DateTimeFormat('en-GB', {
+          timeZone: zone,
           hour: '2-digit',
           minute: '2-digit',
-          hour12: false
+          hour12: false,
+          hourCycle: 'h23',
         }).format(new Date(tsMs));
       } catch {
-        return new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return new Date(tsMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
       }
+    },
+
+    /**
+     * Wall-clock HH:MM:SS in an IANA zone (game `player_timezone`) → epoch ms.
+     * Uses the offset at the target instant (DST-safe). If that instant is not
+     * in the future, rolls to the next civil day in that zone.
+     */
+    gameWallTimeToMs(hh, mm, ss, nowMs, tz) {
+      hh = Number(hh) || 0;
+      mm = Number(mm) || 0;
+      ss = Number(ss) || 0;
+      const now = nowMs ?? Date.now();
+      if (!tz) {
+        const d = new Date(now);
+        d.setHours(hh, mm, ss, 0);
+        if (d.getTime() <= now) d.setDate(d.getDate() + 1);
+        return d.getTime();
+      }
+
+      const partsOf = (ms) => {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: tz,
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false,
+          hourCycle: 'h23',
+        }).formatToParts(new Date(ms));
+        const get = (type) => parseInt(parts.find(p => p.type === type).value, 10);
+        let hour = get('hour');
+        if (hour === 24) hour = 0;
+        return { y: get('year'), mo: get('month'), d: get('day'), h: hour, mi: get('minute'), s: get('second') };
+      };
+
+      const wallToUtc = (y, mo, d, h, mi, s) => {
+        let guess = Date.UTC(y, mo - 1, d, h, mi, s);
+        for (let i = 0; i < 3; i++) {
+          const p = partsOf(guess);
+          const offset = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - guess;
+          const next = Date.UTC(y, mo - 1, d, h, mi, s) - offset;
+          if (next === guess) break;
+          guess = next;
+        }
+        return guess;
+      };
+
+      const today = partsOf(now);
+      let ts = wallToUtc(today.y, today.mo, today.d, hh, mm, ss);
+      if (ts <= now) {
+        const nxt = new Date(Date.UTC(today.y, today.mo - 1, today.d + 1));
+        ts = wallToUtc(nxt.getUTCFullYear(), nxt.getUTCMonth() + 1, nxt.getUTCDate(), hh, mm, ss);
+      }
+      return ts;
     },
 
     /** ID único corto */
@@ -226,6 +279,23 @@
         data.alerts = data.alerts.slice(-GA.MAX_HISTORY);
       this._write(data);
       return true;
+    },
+
+    /**
+     * Alerta pendiente equivalente a `alert`: misma hora (±toleranceMs) y alguna ciudad en común.
+     * Une el registro desde la vista normal y desde la premium, que arman ids distintos y leen la hora
+     * de una cuenta regresiva en el momento del clic. Si se equivoca, la alerta omitida habría sonado
+     * a menos de toleranceMs de otra ya registrada contra la misma ciudad.
+     */
+    findEquivalent(alert, toleranceMs = 3000) {
+      if (!alert.towns?.length) return null;
+      return (this._read().alerts || []).find(a =>
+        a.id !== alert.id
+        && a.status === 'pending'
+        && a.towns?.length
+        && Math.abs(a.tsMs - alert.tsMs) <= toleranceMs
+        && a.towns.some(t => alert.towns.includes(t))
+      ) || null;
     },
 
     removeAlert(id) {
@@ -377,6 +447,7 @@
       support:           { label: 'Apoyo',           icon: '🛡️'  },
       return_own_units:  { label: 'Retorno',         icon: '↩️'  },
       colonization:      { label: 'Colonización',    icon: '🏛️'  },
+      attack_takeover:   { label: 'Conquista',       icon: '🏛️'  },
       spy:               { label: 'Espionaje',       icon: '👁️'  },
       transport:         { label: 'Transporte',      icon: '📦'  },
       building:          { label: 'Construcción',    icon: '🏗️'  },
@@ -405,6 +476,23 @@
     },
 
     /**
+     * Tipo y sentido de una fila de la barra a partir de las clases de su icono
+     * (p. ej. "attack_type32x32 attack_sea outgoing", "attack_spy", "support returning").
+     * "attack_type32x32" es solo un tamaño, no un tipo. type es null si el icono no dice nada.
+     */
+    _fromIconClasses(icon) {
+      const classes = icon ? [...icon.classList] : [];
+      const has = re => classes.some(c => re.test(c));
+      let type = null;
+      if (has(/^attack_spy$|^spy$/))           type = 'spy';
+      else if (has(/^attack_takeover$/))       type = 'attack_takeover';
+      else if (has(/^attack(_land|_sea)?$/))   type = 'attack';
+      else if (has(/^support$/))               type = 'support';
+      else if (has(/^colonization$/))          type = 'colonization';
+      return { type, returning: classes.includes('returning') };
+    },
+
+    /**
      * @param {Object} model  — modelo Backbone
      * @param {string} source — nombre real de la colección ('Attack'|'Support'|'Trade')
      */
@@ -425,7 +513,7 @@
         ? [
             a.wood  > 0 ? `madera:${a.wood}`  : null,
             a.stone > 0 ? `piedra:${a.stone}` : null,
-            a.iron  > 0 ? `hierro:${a.iron}`  : null,
+            a.iron  > 0 ? `plata:${a.iron}`   : null,
             a.gold  > 0 ? `oro:${a.gold}`     : null,
           ].filter(Boolean).join(' ')
         : null;
@@ -476,7 +564,9 @@
         {
           modelId: model.id,
           source:  'MovementsUnits',
-          label:   `${this._meta(a.type).label}: ${origin} → ${dest}`
+          label:   `${this._meta(a.type).label}: ${origin} → ${dest}`,
+          // Solo nombres (no los ids de reserva) para poder cotejar con las filas de las vistas
+          towns:   [a.town_name_origin, a.town_name_destination].filter(n => typeof n === 'string')
         }
       );
     },
@@ -490,13 +580,12 @@
       const ts    = Number(wrap.dataset.timestamp);
       if (!idNum || !ts) return null;
 
-      const icon = wrap.querySelector('.icon')?.classList;
-      const type = ['attack', 'support', 'colonization'].find(t => icon?.contains(t));
+      const { type, returning } = this._fromIconClasses(wrap.querySelector('.icon'));
       if (!type) return null;
 
       const isUnits = wrap.dataset.commandtype === 'unit_movements';
       const town    = wrap.querySelector('.town_link a')?.textContent?.trim();
-      const label   = `${this._meta(type).label}${icon.contains('returning') ? ' (retorno)' : ''}`
+      const label   = `${this._meta(type).label}${returning ? ' (retorno)' : ''}`
                     + (town ? `: ${town}` : '');
 
       return this._base(
@@ -504,7 +593,8 @@
         type,
         ts * 1000,
         GA.game.getCurrentTownId(),
-        { modelId: Number(idNum), source: isUnits ? 'MovementsUnits' : 'DOM', label }
+        { modelId: Number(idNum), source: isUnits ? 'MovementsUnits' : 'DOM', label,
+          ...(town ? { towns: [town] } : {}) }
       );
     },
 
@@ -541,7 +631,7 @@
         type,
         tsMs,
         GA.game.getCurrentTownId(),
-        { modelId: Number(m[2]), source: 'DOM', label }
+        { modelId: Number(m[2]), source: 'DOM', label, towns: towns.filter(Boolean) }
       );
     },
 
@@ -583,6 +673,32 @@
     },
 
     /**
+     * Fila de la lista de comercio de la barra (#toolbar_activity_trades_list .item.trade[data-id]).
+     * Trae el id del trade pero ningún timestamp: la hora sale de .time (tiempo restante).
+     * El id es estable por trade y por tramo (ida o retorno), así la campana detecta "Ya registrado".
+     */
+    fromTradeRow(row) {
+      const idNum = row.dataset?.id;
+      if (!idNum || !row.classList.contains('trade')) return null;
+
+      const tsMs = GA.utils.parseTimer(row.querySelector('.time'));
+      if (!tsMs || tsMs <= Date.now()) return null;
+
+      const returning = !!row.querySelector('.icon.returning');
+      const town      = row.querySelector('.town_link a')?.textContent?.trim();
+      const label     = `${this._meta('transport').label}${returning ? ' (retorno)' : ''}`
+                      + (town ? `: ${town}` : '');
+
+      return this._base(
+        `dom_trade_${idNum}${returning ? '_ret' : ''}`,
+        'transport',
+        tsMs,
+        GA.game.getCurrentTownId(),
+        { modelId: Number(idNum), source: 'DOM', label }
+      );
+    },
+
+    /**
      * Fallback DOM: extrae datos desde una fila HTML que contiene un timer.
      * Infiere el tipo de movimiento por keywords en el texto de la fila.
      */
@@ -607,12 +723,23 @@
         if (keys.some(k => text.includes(k))) { type = t; break; }
       }
 
+      // Las filas de la barra no traen texto con el tipo: el icono sí (attack_sea, attack_spy, support…)
+      const fromIcon = this._fromIconClasses(row.querySelector('.icon'));
+      const extra = { source: 'DOM' };
+      if (fromIcon.type) {
+        type = fromIcon.type;
+        const town = row.querySelector('.town_link a')?.textContent?.trim();
+        extra.label = `${this._meta(type).label}${fromIcon.returning ? ' (retorno)' : ''}`
+                    + (town ? `: ${town}` : '');
+        if (town) extra.towns = [town];
+      }
+
       return this._base(
         `dom_${GA.utils.uid()}`,
         type,
         tsMs,
         GA.game.getCurrentTownId(),
-        { source: 'DOM' }
+        extra
       );
     }
   };
@@ -1047,7 +1174,7 @@
           <a href="${GA.POLICY_URL}" target="_blank" rel="noopener noreferrer" style="color:#e8c87a">políticas</a>.</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button id="ga_consent_yes" style="cursor:pointer;padding:6px 14px;border:1px solid #c8a96e;border-radius:6px;background:#c8a96e;color:#1e1507;font-weight:700">Usar Alarma</button>
-          <button id="ga_consent_no" style="cursor:pointer;padding:4px 8px;border:none;background:none;color:#8b7a52;text-decoration:underline;font-size:11px">Usar sin enviar datos</button>
+          <button id="ga_consent_no" style="cursor:pointer;padding:4px 8px;border:none;background:none;color:#8b7a52;text-decoration:underline;font-size:11px">No quiero ayudar</button>
         </div>`;
       document.body.appendChild(box);
       const close = choice => {
@@ -2064,6 +2191,9 @@
         }
       }
 
+      // Lista de comercio de la barra: id estable por trade (el fallback genérico usa un id aleatorio)
+      if (!alert) alert = GA.parser.fromTradeRow(row);
+
       // Fallback: parsear desde DOM
       if (!alert) alert = GA.parser.fromRow(row);
 
@@ -2072,7 +2202,8 @@
         return;
       }
 
-      const tracked = GA.tracker.track(alert);
+      // El mismo movimiento visto desde la otra vista (normal o premium) ya está registrado
+      const tracked = GA.storage.findEquivalent(alert) ? false : GA.tracker.track(alert);
       if (!tracked) {
         this._bellTip(bell, '✓ Ya registrado', 'info');
         return;
@@ -2128,51 +2259,6 @@
       wrap.querySelector('#ga_ct_add').onclick    = () => this._addCustomAlert(wrap);
     },
 
-    /**
-     * Convierte HH:MM:SS en la timezone del juego a un timestamp Unix (ms).
-     * Evita el bug donde browser timezone y game timezone difieren.
-     */
-    _gameTimeToTimestamp(hh, mm, ss = 0) {
-      const tz = (win.uw || win).Game?.player_timezone;
-      const now = new Date();
-
-      if (!tz) {
-        // Fallback: timezone del browser (no hay juego cargado)
-        const d = new Date(now);
-        d.setHours(hh, mm, ss, 0);
-        return d.getTime();
-      }
-
-      // Obtener la hora actual en timezone del juego
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: tz,
-        year: 'numeric', month: '2-digit', day: '2-digit',
-        hour: '2-digit', minute: '2-digit', second: '2-digit',
-        hour12: false
-      }).formatToParts(now);
-
-      const get = (type) => parseInt(parts.find(p => p.type === type).value);
-      const gameH = get('hour') === 24 ? 0 : get('hour'); // Intl puede devolver 24
-      const gameM = get('minute');
-      const gameS = get('second');
-      const gameY = get('year');
-      const gameMo = get('month');
-      const gameD = get('day');
-
-      // Construir Date en UTC, luego ajustar por offset timezone
-      // Crear fecha UTC con los valores del juego
-      const gameNow = Date.UTC(gameY, gameMo - 1, gameD, gameH, gameM, gameS);
-      // Offset entre此刻 en game timezone y此刻 en UTC
-      const offsetMs = gameNow - now.getTime();
-
-      // Target: midnight UTC del día de hoy + offset + hh:mm
-      const targetUtc = Date.UTC(gameY, gameMo - 1, gameD, hh, mm, ss) - offsetMs;
-
-      // Si el target ya pasó, sumar 1 día
-      const oneDayMs = 86400000;
-      return targetUtc <= now.getTime() ? targetUtc + oneDayMs : targetUtc;
-    },
-
     _addCustomAlert(wrap) {
       const label = wrap.querySelector('#ga_ct')?.value?.trim();
       if (!label) { wrap.querySelector('#ga_ct').focus(); return; }
@@ -2184,7 +2270,8 @@
         const hh = parseInt(wrap.querySelector('#ga_c_hh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_mm').value || 0);
         const ss = parseInt(wrap.querySelector('#ga_c_ss').value || 0);
-        tsMs = this._gameTimeToTimestamp(hh, mm, ss);
+        tsMs = GA.utils.gameWallTimeToMs(
+          hh, mm, ss, Date.now(), (win.uw || win).Game?.player_timezone);
       } else {
         const hh = parseInt(wrap.querySelector('#ga_c_chh').value || 0);
         const mm = parseInt(wrap.querySelector('#ga_c_cmm').value || 0);
